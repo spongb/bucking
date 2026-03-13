@@ -8,26 +8,32 @@
 </head>
 <body>
     <div class="container">
-        <h1>Click to Buck the Stem</h1>
-        <canvas id="logCanvas" width="800" height="200"></canvas>
-        <div id="info">
-            <p>Segments: <span id="segmentCount">0</span> | Total Value: $<span id="totalValue">0</span></p>
-            <button id="computeOptimal">Show Optimal</button>
-            <button id="reset">Reset</button>
-        </div>
-        <div id="segments"></div>
-        <div id="info">
-    <p>Segments: <span id="segmentCount">0</span> | Total Value: $<span id="totalValue">0</span></p>
-    <label><strong>Trim allowance:</strong>
-        <input id="trimInput" type="number" value="3" min="0" max="12" step="0.5"
-               style="width:55px; margin:0 4px;"> inches per log
-    </label>
-    <br><br>
-    <button id="computeOptimal">Show Optimal</button>
-    <button id="newLog">New Log</button>
-    <button id="reset">Reset Cuts</button>
-</div>
+        <h1>🪵 Bucking Trainer</h1>
 
+        <div id="gameHeader">
+            <span id="logCounter">Log 1 of 5</span>
+            <span id="gameScore">Running Score: 0%</span>
+        </div>
+
+        <div id="logInfo">
+            <strong>Log:</strong> <span id="logDesc"></span> &nbsp;|&nbsp;
+            <label><strong>Trim:</strong>
+                <input id="trimInput" type="number" value="3" min="0" max="12" step="0.5"
+                       style="width:50px; margin:0 4px;"> in
+            </label>
+        </div>
+
+        <canvas id="logCanvas" width="800" height="200"></canvas>
+
+        <div id="info">
+            <p>Segments: <span id="segmentCount">0</span> &nbsp;|&nbsp; Your Value: $<span id="totalValue">0</span></p>
+            <button id="scoreLog">Score This Log</button>
+            <button id="nextLog" style="display:none;">Next Log →</button>
+            <button id="reset">Reset Cuts</button>
+        </div>
+
+        <div id="segments"></div>
+        <div id="finalScore" style="display:none;"></div>
     </div>
     <script src="script.js"></script>
 </body>
