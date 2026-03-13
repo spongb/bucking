@@ -18,12 +18,19 @@
         <div id="logInfo">
             <strong>Log:</strong> <span id="logDesc"></span> &nbsp;|&nbsp;
             <label><strong>Trim:</strong>
-                <input id="trimInput" type="number" value="3" min="0" max="12" step="0.5"
+                <input id="trimInput" type="number" value="4" min="0" max="12" step="0.5"
                        style="width:50px; margin:0 4px;"> in
             </label>
         </div>
         
+        <div id="defectLegend"></div>
+        
         <canvas id="logCanvas" width="800" height="200"></canvas>
+
+        <div id="optContainer" style="display:none; margin-top:10px;">
+            <h3 style="margin:0 0 5px 0; font-size:16px; color:#27ae60;">✓ Optimal Bucking Solution</h3>
+            <canvas id="optCanvas" width="800" height="200"></canvas>
+        </div>
 
         <div id="info">
             <p>Segments: <span id="segmentCount">0</span> &nbsp;|&nbsp; Your Value: $<span id="totalValue">0</span></p>

@@ -73,6 +73,8 @@ function loadLog(logObj) {
     document.getElementById('scoreLog').style.display  = 'inline-block';
     document.getElementById('segments').innerHTML      = '';
     document.getElementById('finalScore').style.display = 'none';
+    const optContainer = document.getElementById('optContainer');
+    if (optContainer) optContainer.style.display = 'none';
 
     buildDefectLegend();
     drawLog();
@@ -95,8 +97,10 @@ function buildDefectLegend() {
 // ─── Canvas Setup ──────────────────────────────────────────────────────────
 const canvas = document.getElementById('logCanvas');
 const ctx    = canvas.getContext('2d');
+const optCanvas = document.getElementById('optCanvas');
+const optCtx    = optCanvas ? optCanvas.getContext('2d') : null;
 
-function getScale() { return canvas.width / totalLength; }
+function getScale(cvs = canvas) { return cvs.width / totalLength; }
 function getTrim()  {
     const val = parseFloat(document.getElementById('trimInput').value);
     return isNaN(val) ? 0.25 : val / 12;
@@ -104,8 +108,13 @@ function getTrim()  {
 
 // ─── Draw Log ──────────────────────────────────────────────────────────────
 function drawLog() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const scale   = getScale();
+    drawLogGraphic(ctx, canvas, cuts);
+    updateSegments();
+}
+
+function drawLogGraphic(context, can, cutsList) {
+    context.clearRect(0, 0, can.width, can.height);
+    const scale   = getScale(can);
     const yCenter = 100;
     const pxPerIn = 1.5;
 
@@ -119,54 +128,54 @@ function drawLog() {
     }
 
     // Bold outline
-    ctx.strokeStyle = '#8B4513';
-    ctx.lineWidth   = 8;
-    ctx.lineCap     = 'round';
-    ctx.lineJoin    = 'round';
+    context.strokeStyle = '#8B4513';
+    context.lineWidth   = 8;
+    context.lineCap     = 'round';
+    context.lineJoin    = 'round';
 
-    ctx.beginPath();
+    context.beginPath();
     points.forEach((p, i) => {
-        if (i === 0) ctx.moveTo(p.x, yCenter - p.radiusPx);
-        else         ctx.lineTo(p.x, yCenter - p.radiusPx);
+        if (i === 0) context.moveTo(p.x, yCenter - p.radiusPx);
+        else         context.lineTo(p.x, yCenter - p.radiusPx);
     });
-    ctx.stroke();
+    context.stroke();
 
-    ctx.beginPath();
+    context.beginPath();
     points.slice().reverse().forEach((p, i) => {
-        if (i === 0) ctx.moveTo(p.x, yCenter + p.radiusPx);
-        else         ctx.lineTo(p.x, yCenter + p.radiusPx);
+        if (i === 0) context.moveTo(p.x, yCenter + p.radiusPx);
+        else         context.lineTo(p.x, yCenter + p.radiusPx);
     });
-    ctx.stroke();
+    context.stroke();
 
     // Gray gradient fill
-    const grad = ctx.createLinearGradient(0, 80, canvas.width, 120);
+    const grad = context.createLinearGradient(0, 80, can.width, 120);
     grad.addColorStop(0, '#D8D8D8');
     grad.addColorStop(1, '#B0B0B0');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
+    context.fillStyle = grad;
+    context.beginPath();
     points.forEach((p, i) => {
-        if (i === 0) ctx.moveTo(p.x, yCenter - p.radiusPx);
-        else         ctx.lineTo(p.x, yCenter - p.radiusPx);
+        if (i === 0) context.moveTo(p.x, yCenter - p.radiusPx);
+        else         context.lineTo(p.x, yCenter - p.radiusPx);
     });
-    points.slice().reverse().forEach(p => ctx.lineTo(p.x, yCenter + p.radiusPx));
-    ctx.closePath();
-    ctx.fill();
+    points.slice().reverse().forEach(p => context.lineTo(p.x, yCenter + p.radiusPx));
+    context.closePath();
+    context.fill();
 
     // Draw defects
-    drawDefects(currentDefects, scale, yCenter, pxPerIn);
+    drawDefects(context, currentDefects, scale, yCenter, pxPerIn);
 
     // Foot ticks
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth   = 2;
+    context.strokeStyle = '#000';
+    context.lineWidth   = 2;
     for (let i = 0; i <= totalLength; i += 2) {
         const x = i * scale;
-        ctx.beginPath();
-        ctx.moveTo(x, 65); ctx.lineTo(x, 80);
-        ctx.stroke();
-        ctx.fillStyle  = '#000';
-        ctx.font       = '12px Arial';
-        ctx.textAlign  = 'center';
-        ctx.fillText(i.toString(), x, 60);
+        context.beginPath();
+        context.moveTo(x, 65); context.lineTo(x, 80);
+        context.stroke();
+        context.fillStyle  = '#000';
+        context.font       = '12px Arial';
+        context.textAlign  = 'center';
+        context.fillText(i.toString(), x, 60);
     }
 
     // Diameter labels
@@ -179,47 +188,45 @@ function drawLog() {
         const radiusPx = (diaIn / 2) * pxPerIn;
         const isLast   = idx === labelFts.length - 1;
 
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth   = 3;
-        ctx.beginPath();
-        ctx.moveTo(x, yCenter - radiusPx - 12);
-        ctx.lineTo(x, yCenter + radiusPx + 28);
-        ctx.stroke();
+        context.strokeStyle = '#fff';
+        context.lineWidth   = 3;
+        context.beginPath();
+        context.moveTo(x, yCenter - radiusPx - 12);
+        context.lineTo(x, yCenter + radiusPx + 28);
+        context.stroke();
 
-        ctx.font        = 'bold 16px Arial';
-        ctx.textAlign   = isLast ? 'right' : 'left';
+        context.font        = 'bold 16px Arial';
+        context.textAlign   = isLast ? 'right' : 'left';
         const labelX    = isLast ? x - 6 : x + 6;
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth   = 3;
-        ctx.strokeText(diaIn + '"', labelX, yCenter + 35);
-        ctx.fillStyle   = '#000';
-        ctx.fillText(diaIn + '"', labelX, yCenter + 35);
+        context.strokeStyle = '#fff';
+        context.lineWidth   = 3;
+        context.strokeText(diaIn + '"', labelX, yCenter + 35);
+        context.fillStyle   = '#000';
+        context.fillText(diaIn + '"', labelX, yCenter + 35);
     });
 
     // Cut markers
-    cuts.forEach(cut => {
+    cutsList.forEach(cut => {
         const x = cut * scale;
-        ctx.strokeStyle = '#f00';
-        ctx.lineWidth   = 6;
-        ctx.lineCap     = 'round';
-        ctx.beginPath();
-        ctx.moveTo(x, 45); ctx.lineTo(x, 155);
-        ctx.stroke();
+        context.strokeStyle = '#f00';
+        context.lineWidth   = 6;
+        context.lineCap     = 'round';
+        context.beginPath();
+        context.moveTo(x, 45); context.lineTo(x, 155);
+        context.stroke();
 
-        ctx.font        = 'bold 13px Arial';
-        ctx.textAlign   = 'center';
-        ctx.strokeStyle = '#f00';
-        ctx.lineWidth   = 1.5;
-        ctx.strokeText(cut.toFixed(1) + "'", x, 42);
-        ctx.fillStyle   = '#fff';
-        ctx.fillText(cut.toFixed(1) + "'", x, 42);
+        context.font        = 'bold 13px Arial';
+        context.textAlign   = 'center';
+        context.strokeStyle = '#f00';
+        context.lineWidth   = 1.5;
+        context.strokeText(cut.toFixed(1) + "'", x, 42);
+        context.fillStyle   = '#fff';
+        context.fillText(cut.toFixed(1) + "'", x, 42);
     });
-
-    updateSegments();
 }
 
 // ─── Draw Defects ──────────────────────────────────────────────────────────
-function drawDefects(defects, scale, yCenter, pxPerIn) {
+function drawDefects(context, defects, scale, yCenter, pxPerIn) {
     defects.forEach(d => {
         const x1    = d.startFt * scale;
         const x2    = d.endFt   * scale;
@@ -228,43 +235,43 @@ function drawDefects(defects, scale, yCenter, pxPerIn) {
         const dia   = buttDia - (buttDia - topDia) * frac;
         const r     = (dia / 2) * pxPerIn;
 
-        ctx.globalAlpha = 0.75;
+        context.globalAlpha = 0.75;
 
         if (d.type === 'knot_cluster') {
-            ctx.fillStyle = d.color;
+            context.fillStyle = d.color;
             const numKnots = Math.max(2, Math.round((x2 - x1) / 15));
             for (let k = 0; k < numKnots; k++) {
                 const kx = x1 + ((k + 0.5) / numKnots) * (x2 - x1);
                 const ky = yCenter - r + 8 + (k % 2) * 8;
-                ctx.beginPath();
-                ctx.arc(kx, ky, 6, 0, Math.PI * 2);
-                ctx.fill();
+                context.beginPath();
+                context.arc(kx, ky, 6, 0, Math.PI * 2);
+                context.fill();
             }
         } else if (d.type === 'rot') {
-            ctx.fillStyle = d.color;
-            ctx.fillRect(x1, yCenter - r, x2 - x1, r * 2);
+            context.fillStyle = d.color;
+            context.fillRect(x1, yCenter - r, x2 - x1, r * 2);
         } else if (d.type === 'seam') {
-            ctx.strokeStyle = d.color;
-            ctx.lineWidth   = 4;
-            ctx.beginPath();
-            ctx.moveTo(x1, yCenter - r + 5);
-            ctx.lineTo(x2, yCenter - r + 5);
-            ctx.stroke();
+            context.strokeStyle = d.color;
+            context.lineWidth   = 4;
+            context.beginPath();
+            context.moveTo(x1, yCenter - r + 5);
+            context.lineTo(x2, yCenter - r + 5);
+            context.stroke();
         } else if (d.type === 'sweep') {
-            ctx.fillStyle = d.color;
-            ctx.fillRect(x1, yCenter + r - 10, x2 - x1, 10);
+            context.fillStyle = d.color;
+            context.fillRect(x1, yCenter + r - 10, x2 - x1, 10);
         }
 
-        ctx.globalAlpha = 1.0;
+        context.globalAlpha = 1.0;
 
         // Defect label above stem
-        ctx.font        = 'bold 11px Arial';
-        ctx.textAlign   = 'center';
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth   = 2;
-        ctx.strokeText(d.label, (x1 + x2) / 2, yCenter - r - 6);
-        ctx.fillStyle   = d.color;
-        ctx.fillText(d.label, (x1 + x2) / 2, yCenter - r - 6);
+        context.font        = 'bold 11px Arial';
+        context.textAlign   = 'center';
+        context.strokeStyle = '#fff';
+        context.lineWidth   = 2;
+        context.strokeText(d.label, (x1 + x2) / 2, yCenter - r - 6);
+        context.fillStyle   = d.color;
+        context.fillText(d.label, (x1 + x2) / 2, yCenter - r - 6);
     });
 }
 
@@ -295,35 +302,65 @@ function getClearFaces(startFt, endFt, defects) {
     return Math.max(0, faces);
 }
 
-// ─── AHMI Grading (Diameter + Clear Faces) ────────────────────────────────
+// ─── AHMI Grading Matrix (from PDF Page 14) ──────────────────────────────
 function getGradeAndPrice(dia, clearFaces) {
-    if (dia >= 16 && clearFaces >= 4) return { grade: 'Prime',     pricePerBF: 2.50 };
-    if (dia >= 12 && clearFaces >= 3) return { grade: 'Select+',   pricePerBF: 1.80 };
-    if (dia >= 11 && clearFaces >= 2) return { grade: 'No.1',      pricePerBF: 1.20 };
-    if (dia >= 8  && clearFaces >= 1) return { grade: 'No.2',      pricePerBF: 0.80 };
-    return                                   { grade: 'No.3/Pulp', pricePerBF: 0.30 };
+    const d = Math.floor(dia);
+    const faceIdx = 4 - clearFaces; // 4 faces -> index 0, 3 faces -> index 1, etc.
+    
+    let grade = 'No. 3';
+    if      (d >= 17) grade = ['Prime',    'Select+', 'Select',  'No. 2+', 'No. 2'][faceIdx];
+    else if (d >= 16) grade = ['Select+',  'No. 1+',  'No. 1',   'No. 2+', 'No. 2'][faceIdx];
+    else if (d >= 15) grade = ['Select+',  'No. 1+',  'No. 2+',  'No. 2',  'No. 3'][faceIdx];
+    else if (d >= 14) grade = ['Select',   'No. 1',   'No. 2+',  'No. 2',  'No. 3'][faceIdx];
+    else if (d >= 13) grade = ['No. 1+',   'No. 2+',  'No. 2',   'No. 3',  'No. 3'][faceIdx];
+    else if (d >= 11) grade = ['No. 2+',   'No. 2',   'No. 3',   'No. 3',  'No. 3'][faceIdx];
+    else              grade = 'No. 3';
+
+    const prices = {
+        'Prime': 2.50, 'Select+': 2.10, 'Select': 1.80, 'No. 1+': 1.50,
+        'No. 1': 1.20, 'No. 2+': 1.00,  'No. 2': 0.80,  'No. 3': 0.30
+    };
+
+    return { grade, pricePerBF: prices[grade] || 0.30 };
 }
 
 // ─── Score Segments ────────────────────────────────────────────────────────
 function scoreSegments(cutList, defects) {
     const trim = getTrim();
+    const standardLengths = [16, 14, 12, 10, 8];
     let totalValue = 0;
     const segs = [];
     const allPoints = [...cutList, totalLength];
     let prevFt = 0;
 
     allPoints.forEach(endFt => {
-        const nomLen = endFt - prevFt - trim;
+        const physicalLen = endFt - prevFt;
+        const maxNomLen   = physicalLen - trim;
+        
+        let nomLen = 0;
+        for (const L of standardLengths) {
+            if (L <= maxNomLen + 0.01) {
+                nomLen = L;
+                break;
+            }
+        }
+
         if (nomLen > 0) {
-            const midFt      = prevFt + nomLen / 2;
-            const frac       = midFt / totalLength;
+            // Scaling at the small end of the nominal log
+            const scalingFt  = prevFt + nomLen;
+            const frac       = scalingFt / totalLength;
             const scalingDia = buttDia - (buttDia - topDia) * frac;
-            const clearFaces = getClearFaces(prevFt, endFt, defects);
+            
+            const clearFaces = getClearFaces(prevFt, prevFt + nomLen, defects);
             const volumeBF   = doyleVolume(scalingDia, nomLen);
             const gradeInfo  = getGradeAndPrice(scalingDia, clearFaces);
             const value      = Math.round(volumeBF * gradeInfo.pricePerBF);
-            totalValue      += value;
-            segs.push({ endFt, nomLen, scalingDia, clearFaces, volumeBF, gradeInfo, value });
+            
+            totalValue += value;
+            segs.push({ endFt, physicalLen, nomLen, scalingDia, clearFaces, volumeBF, gradeInfo, value });
+        } else {
+            segs.push({ endFt, physicalLen, nomLen: 0, scalingDia: 0, clearFaces: 0, volumeBF: 0, 
+                        gradeInfo: { grade: 'Pulp/Waste', pricePerBF: 0 }, value: 0 });
         }
         prevFt = endFt;
     });
@@ -334,20 +371,25 @@ function scoreSegments(cutList, defects) {
 // ─── Live Segment Display ──────────────────────────────────────────────────
 function updateSegments() {
     const { totalValue, segs } = scoreSegments(cuts, currentDefects);
-    const trim = getTrim();
     let html = '';
     segs.forEach((s, i) => {
-        const faceColor = s.clearFaces >= 3 ? '#27ae60' : s.clearFaces >= 2 ? '#e67e22' : '#c0392b';
-        html += `<div class="segment">
-            Log ${i+1}: ${s.nomLen.toFixed(1)}ft @
-            ${s.scalingDia.toFixed(1)}" |
-            <span style="color:${faceColor}; font-weight:bold;">${s.clearFaces} clear faces</span>
-            &rarr; ${s.volumeBF} bf
-            <strong>${s.gradeInfo.grade}</strong> &rarr; $${s.value}
-        </div>`;
+        if (s.nomLen > 0) {
+            const faceColor = s.clearFaces >= 3 ? '#27ae60' : s.clearFaces >= 2 ? '#e67e22' : '#c0392b';
+            html += `<div class="segment">
+                Log ${i+1}: <strong>${s.nomLen}'</strong> (from ${s.physicalLen.toFixed(1)}' piece) @
+                ${s.scalingDia.toFixed(1)}" |
+                <span style="color:${faceColor}; font-weight:bold;">${s.clearFaces} clear faces</span>
+                &rarr; ${s.volumeBF} bf
+                <strong>${s.gradeInfo.grade}</strong> &rarr; $${s.value}
+            </div>`;
+        } else {
+            html += `<div class="segment" style="color:#777; font-style:italic;">
+                Piece ${i+1}: ${s.physicalLen.toFixed(1)}' &rarr; Under 8' standard (Wasted)
+            </div>`;
+        }
     });
     document.getElementById('segments').innerHTML = html;
-    document.getElementById('segmentCount').textContent = segs.length;
+    document.getElementById('segmentCount').textContent = segs.filter(s => s.nomLen > 0).length;
     document.getElementById('totalValue').textContent   = totalValue.toFixed(0);
 }
 
@@ -366,14 +408,17 @@ function computeOptimal() {
             const cutFt   = startFt + nomLen + trim;
             if (cutFt > totalLength + 0.01) continue;
             const endStep = Math.min(Math.round(cutFt / step), steps);
-            const midFt   = startFt + nomLen / 2;
-            const frac    = midFt / totalLength;
-            const dia     = buttDia - (buttDia - topDia) * frac;
-            const endFt   = startFt + nomLen;
-            const faces   = getClearFaces(startFt, endFt, currentDefects);
-            const vol     = doyleVolume(dia, nomLen);
-            const grade   = getGradeAndPrice(dia, faces);
-            const val     = Math.round(vol * grade.pricePerBF) + (dp[endStep] || 0);
+            
+            // Optimal scaling diameter at the small end of the nominal log
+            const scalingFt = startFt + nomLen;
+            const frac      = scalingFt / totalLength;
+            const dia       = buttDia - (buttDia - topDia) * frac;
+            
+            const faces     = getClearFaces(startFt, startFt + nomLen, currentDefects);
+            const vol       = doyleVolume(dia, nomLen);
+            const grade     = getGradeAndPrice(dia, faces);
+            const val       = Math.round(vol * grade.pricePerBF) + (dp[endStep] || 0);
+            
             if (val > dp[i]) { dp[i] = val; choice[i] = endStep; }
         }
     }
@@ -399,6 +444,13 @@ document.getElementById('scoreLog').addEventListener('click', () => {
     logScores.push({ pct, totalValue, optValue, logNum: currentLogIndex + 1 });
     updateRunningScore();
 
+    // Show optimal canvas
+    const optContainer = document.getElementById('optContainer');
+    if (optContainer && optCtx) {
+        optContainer.style.display = 'block';
+        drawLogGraphic(optCtx, optCanvas, optCuts);
+    }
+
     let html = `
         <div style="background:#fff3cd; padding:15px; border-radius:8px; margin:15px 0;
                     font-size:16px; border:1px solid #ffc107;">
@@ -413,13 +465,19 @@ document.getElementById('scoreLog').addEventListener('click', () => {
                 <h3 style="color:#c0392b;">✏ Your Bucking — $${totalValue}</h3>`;
 
     segs.forEach((s, i) => {
-        const faceColor = s.clearFaces >= 3 ? '#27ae60' : s.clearFaces >= 2 ? '#e67e22' : '#c0392b';
-        html += `<div class="segment" style="border-left:4px solid #c0392b;">
-            Log ${i+1}: ${s.nomLen.toFixed(1)}ft @
-            ${s.scalingDia.toFixed(1)}" |
-            <span style="color:${faceColor}; font-weight:bold;">${s.clearFaces} clear faces</span>
-            &rarr; ${s.volumeBF} bf <strong>${s.gradeInfo.grade}</strong> &rarr; $${s.value}
-        </div>`;
+        if (s.nomLen > 0) {
+            const faceColor = s.clearFaces >= 3 ? '#27ae60' : s.clearFaces >= 2 ? '#e67e22' : '#c0392b';
+            html += `<div class="segment" style="border-left:4px solid #c0392b;">
+                Log ${i+1}: <strong>${s.nomLen}'</strong> (${s.physicalLen.toFixed(1)}' piece) @
+                ${s.scalingDia.toFixed(1)}" |
+                <span style="color:${faceColor}; font-weight:bold;">${s.clearFaces} clear faces</span>
+                &rarr; $${s.value}
+            </div>`;
+        } else {
+            html += `<div class="segment" style="border-left:4px solid #ccc; color:#777;">
+                Piece ${i+1}: ${s.physicalLen.toFixed(1)}' (Waste)
+            </div>`;
+        }
     });
 
     html += `</div><div style="flex:1; min-width:220px;">
@@ -428,10 +486,10 @@ document.getElementById('scoreLog').addEventListener('click', () => {
     optSegs.forEach((s, i) => {
         const faceColor = s.clearFaces >= 3 ? '#27ae60' : s.clearFaces >= 2 ? '#e67e22' : '#c0392b';
         html += `<div class="segment" style="border-left:4px solid #27ae60;">
-            Log ${i+1}: ${s.nomLen.toFixed(1)}ft @
+            Log ${i+1}: <strong>${s.nomLen}'</strong> @
             ${s.scalingDia.toFixed(1)}" |
             <span style="color:${faceColor}; font-weight:bold;">${s.clearFaces} clear faces</span>
-            &rarr; ${s.volumeBF} bf <strong>${s.gradeInfo.grade}</strong> &rarr; $${s.value}
+            &rarr; $${s.value}
         </div>`;
     });
 
@@ -445,6 +503,7 @@ document.getElementById('scoreLog').addEventListener('click', () => {
         showFinalScore();
     }
 });
+
 
 // ─── Running Score ─────────────────────────────────────────────────────────
 function updateRunningScore() {

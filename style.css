@@ -1,6 +1,7 @@
 body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #ffffff; }
 .container { max-width: 900px; margin: auto; text-align: center; }
 #logCanvas { border: 2px solid #333; background: linear-gradient(to bottom, #e8e8e8, #dddbdb); cursor: crosshair; }
+#optCanvas { border: 2px solid #27ae60; background: linear-gradient(to bottom, #e8e8e8, #dddbdb); cursor: default; }
 #info { margin: 20px 0; font-size: 18px; }
 button { padding: 10px 20px; margin: 0 10px; background: #4CAF50; color: white; border: none; cursor: pointer; }
 button:hover { background: #45a049; }
@@ -20,4 +21,8 @@ button:hover { background: #45a049; }
 #logInfo {
     margin-bottom: 10px;
     font-size: 15px;
+}
+#defectLegend {
+    margin-bottom: 15px;
+    min-height: 20px;
 }
