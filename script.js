@@ -3,6 +3,7 @@ const TOTAL_LOGS = 5;
 let currentLogIndex = 0;
 let logScores = [];
 let cuts = [];
+let dragIdx = -1;
 let totalLength, buttDia, topDia;
 let currentDefects = [];
 
@@ -275,15 +276,49 @@ function drawDefects(context, defects, scale, yCenter, pxPerIn) {
     });
 }
 
-// ─── Click Handler ─────────────────────────────────────────────────────────
-canvas.addEventListener('click', (e) => {
-    const scale  = getScale();
-    const rect   = canvas.getBoundingClientRect();
-    const x      = (e.clientX - rect.left) / scale;
-    const idx    = cuts.findIndex(c => Math.abs(c - x) < 0.5);
-    if (idx !== -1) cuts[idx] = x;
-    else { cuts.push(x); cuts.sort((a, b) => a - b); }
-    drawLog();
+// ─── Mouse Event Handlers ──────────────────────────────────────────────────
+canvas.addEventListener('mousedown', (e) => {
+    const scale = getScale();
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / scale;
+    
+    // Check if clicking near an existing cut (within 0.4 ft)
+    const idx = cuts.findIndex(c => Math.abs(c - x) < 0.4);
+    if (idx !== -1) {
+        dragIdx = idx;
+    } else {
+        // Add a new cut
+        const snapX = Math.round(x * 10) / 10;
+        cuts.push(snapX);
+        cuts.sort((a, b) => a - b);
+        dragIdx = cuts.indexOf(snapX);
+        drawLog();
+    }
+});
+
+window.addEventListener('mousemove', (e) => {
+    const scale = getScale();
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / scale;
+
+    if (dragIdx !== -1) {
+        // Update the cut's position, clamping to log bounds
+        let newX = Math.max(0, Math.min(totalLength, x));
+        cuts[dragIdx] = Math.round(newX * 10) / 10; // Snap to 0.1 ft
+        drawLog();
+    } else {
+        // Change cursor if hovering over a cut
+        const idx = cuts.findIndex(c => Math.abs(c - x) < 0.4);
+        canvas.style.cursor = (idx !== -1) ? 'ew-resize' : 'crosshair';
+    }
+});
+
+window.addEventListener('mouseup', () => {
+    if (dragIdx !== -1) {
+        cuts.sort((a, b) => a - b);
+        dragIdx = -1;
+        drawLog();
+    }
 });
 
 // ─── Doyle Volume ──────────────────────────────────────────────────────────
