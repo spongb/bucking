@@ -1,18 +1,22 @@
 body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #ffffff; }
 .container { max-width: 900px; margin: auto; text-align: center; }
 h1 { color: #002855; border-bottom: 3px solid #EAAA00; padding-bottom: 8px; margin-bottom: 12px; }
-#logCanvas    { border: 2px solid #002855; background: linear-gradient(to bottom, #e8e8e8, #dddbdb); cursor: crosshair; display: block; margin: 0 auto; }
-#optCanvas    { border: 2px solid #EAAA00; background: linear-gradient(to bottom, #e8e8e8, #dddbdb); cursor: default;    display: block; margin: 0 auto; }
-#faceCanvas   { border: 2px solid #002855; border-top: none; background: #f5f8ff; display: block; margin: 0 auto; }
-#optFaceCanvas{ border: 2px solid #EAAA00; border-top: none; background: #f5f8ff; display: block; margin: 0 auto; }
-#info { margin: 20px 0; font-size: 18px; }
-button { padding: 10px 20px; margin: 0 10px; background: #EAAA00; color: #002855; font-weight: bold; border: none; cursor: pointer; border-radius: 4px; }
+
+#logCanvas    { border: 2px solid #002855; background: linear-gradient(to bottom, #e8e8e8, #dddbdb); cursor: crosshair; display: block; margin: 0 auto; max-width: 100%; height: auto; touch-action: none; }
+#optCanvas    { border: 2px solid #EAAA00; background: linear-gradient(to bottom, #e8e8e8, #dddbdb); cursor: default;    display: block; margin: 0 auto; max-width: 100%; height: auto; }
+#faceCanvas   { border: 2px solid #002855; border-top: none; background: #f5f8ff; display: block; margin: 0 auto; max-width: 100%; height: auto; }
+#optFaceCanvas{ border: 2px solid #EAAA00; border-top: none; background: #f5f8ff; display: block; margin: 0 auto; max-width: 100%; height: auto; }
+
+#info { margin: 14px 0; font-size: 18px; }
+button { padding: 10px 20px; margin: 4px 6px; background: #EAAA00; color: #002855; font-weight: bold; border: none; cursor: pointer; border-radius: 4px; font-size: 15px; }
 button:hover { background: #C9930A; color: #fff; }
-#segments { margin-top: 20px; text-align: left; }
-.segment { background: #ffffff; padding: 10px; margin: 5px 0; border-radius: 5px; border: 1px solid #e0e0e0; }
+#segments { margin-top: 16px; text-align: left; }
+.segment { background: #ffffff; padding: 10px; margin: 5px 0; border-radius: 5px; border: 1px solid #e0e0e0; font-size: 14px; }
 #gameHeader {
     display: flex;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px;
     font-size: 18px;
     font-weight: bold;
     margin-bottom: 10px;
@@ -25,8 +29,31 @@ button:hover { background: #C9930A; color: #fff; }
 #logInfo {
     margin-bottom: 10px;
     font-size: 15px;
+    flex-wrap: wrap;
 }
 #defectLegend {
-    margin-bottom: 15px;
+    margin-bottom: 12px;
     min-height: 20px;
+}
+#gradingRef {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+#gradingRef table {
+    min-width: 420px;
+}
+#finalReport {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 600px) {
+    body { padding: 8px; }
+    h1 { font-size: 20px; margin-bottom: 8px; }
+    #gameHeader { font-size: 14px; padding: 6px 10px; }
+    #logInfo { font-size: 13px; }
+    #info { font-size: 15px; margin: 10px 0; }
+    button { padding: 9px 14px; font-size: 13px; margin: 3px 4px; }
+    .segment { font-size: 13px; padding: 8px; }
+    #defectLegend { font-size: 13px; }
 }

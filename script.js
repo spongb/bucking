@@ -6,53 +6,91 @@ let cuts = [];
 let dragIdx = -1;
 let totalLength, buttDia, topDia;
 let currentDefects = [];
+let currentSpecies = '';
 
 // ─── Random Log Generator ──────────────────────────────────────────────────
 function generateLog() {
-    const lengths = [32, 34, 36, 38, 40, 42, 44];
-    const buttDias = [14, 16, 18, 20, 22, 24];
-    const tapers   = [4, 5, 6, 7, 8, 9, 10];
-    const length   = lengths[Math.floor(Math.random() * lengths.length)];
-    const butt     = buttDias[Math.floor(Math.random() * buttDias.length)];
-    const taper    = tapers[Math.floor(Math.random() * tapers.length)];
-    const top      = Math.max(6, butt - taper);
-    return { length, butt, top };
+    const isPoplar  = Math.random() < 0.5;
+    const isPeeler  = Math.random() < (isPoplar ? 0.25 : 0.15);
+    let lengths, buttDias, tapers, species;
+
+    if (isPoplar) {
+        species = 'Yellow Poplar';
+        if (isPeeler) {
+            lengths  = [40, 44, 48, 52, 56];
+            buttDias = [22, 24, 26, 28, 30, 32];
+            tapers   = [2, 3, 3, 4];
+        } else {
+            lengths  = [32, 36, 40, 44, 48];
+            buttDias = [14, 16, 18, 20, 22, 24];
+            tapers   = [3, 4, 4, 5, 5, 6];
+        }
+    } else {
+        species = 'Red Oak';
+        if (isPeeler) {
+            lengths  = [32, 36, 40, 44, 48];
+            buttDias = [20, 22, 24, 26, 28];
+            tapers   = [4, 5, 6, 7, 8];
+        } else {
+            lengths  = [24, 28, 32, 36, 40, 44, 48];
+            buttDias = [14, 16, 18, 20, 22, 24, 26];
+            tapers   = [5, 6, 7, 8, 9, 10];
+        }
+    }
+
+    const length = lengths [Math.floor(Math.random() * lengths.length)];
+    const butt   = buttDias[Math.floor(Math.random() * buttDias.length)];
+    const taper  = tapers  [Math.floor(Math.random() * tapers.length)];
+    const top    = Math.max(6, butt - taper);
+    return { length, butt, top, species };
 }
 
 // ─── Random Defect Generator ───────────────────────────────────────────────
-function generateDefects(logLength) {
-    const defects = [];
-    const numDefects = Math.floor(Math.random() * 4) + 1;
+// Defect pools weighted by species:
+//   Yellow Poplar — prone to sweep; rot uncommon
+//   Red Oak       — prone to seams/knots and rot; sweep uncommon
+const DEFECT_POOLS = {
+    'Yellow Poplar': [
+        { type: 'sweep',        label: 'Sweep', color: '#DAA520', facePenalty: 1, minLen: 4, maxLen: 10, weight: 4 },
+        { type: 'knot_cluster', label: 'Knots', color: '#8B4513', facePenalty: 1, minLen: 2, maxLen: 5,  weight: 2 },
+        { type: 'seam',         label: 'Seam',  color: '#444444', facePenalty: 1, minLen: 3, maxLen: 8,  weight: 2 },
+        { type: 'rot',          label: 'Rot',   color: '#8B0000', facePenalty: 1, minLen: 2, maxLen: 4,  weight: 1 },
+    ],
+    'Red Oak': [
+        { type: 'knot_cluster', label: 'Knots', color: '#8B4513', facePenalty: 1, minLen: 2, maxLen: 5,  weight: 3 },
+        { type: 'seam',         label: 'Seam',  color: '#444444', facePenalty: 1, minLen: 3, maxLen: 8,  weight: 3 },
+        { type: 'rot',          label: 'Rot',   color: '#8B0000', facePenalty: 1, minLen: 2, maxLen: 4,  weight: 2 },
+        { type: 'sweep',        label: 'Sweep', color: '#DAA520', facePenalty: 1, minLen: 4, maxLen: 10, weight: 1 },
+    ]
+};
 
-    const defectTypes = [
-        { type: 'knot_cluster', label: 'Knots',  color: '#8B4513', facePenalty: 1, minLen: 2, maxLen: 5  },
-        { type: 'seam',         label: 'Seam',   color: '#444444', facePenalty: 1, minLen: 3, maxLen: 8  },
-        { type: 'rot',          label: 'Rot',    color: '#8B0000', facePenalty: 2, minLen: 2, maxLen: 4  },
-        { type: 'sweep',        label: 'Sweep',  color: '#DAA520', facePenalty: 1, minLen: 4, maxLen: 10 }
-    ];
+function generateDefects(logLength, species) {
+    const defects    = [];
+    const numDefects = Math.floor(Math.random() * 4) + 1;
+    const pool       = DEFECT_POOLS[species] || DEFECT_POOLS['Red Oak'];
+    const totalW     = pool.reduce((s, d) => s + d.weight, 0);
+
+    function pickType() {
+        let r = Math.random() * totalW;
+        for (const d of pool) { r -= d.weight; if (r <= 0) return d; }
+        return pool[pool.length - 1];
+    }
 
     for (let i = 0; i < numDefects; i++) {
-        const t       = defectTypes[Math.floor(Math.random() * defectTypes.length)];
-        const len     = t.minLen + Math.random() * (t.maxLen - t.minLen);
-        const startFt = 2 + Math.random() * (logLength - len - 4);
-        
-        // Randomly assign to 1 or more faces (1-4)
-        const numFaces = Math.floor(Math.random() * 4) + 1;
+        const t          = pickType();
+        const len        = t.minLen + Math.random() * (t.maxLen - t.minLen);
+        const startFt    = 2 + Math.random() * (logLength - len - 4);
+        const numFaces   = Math.floor(Math.random() * 4) + 1;
+        const available  = [0, 1, 2, 3];
         const facesAffected = [];
-        const availableFaces = [0, 1, 2, 3];
         for (let j = 0; j < numFaces; j++) {
-            const idx = Math.floor(Math.random() * availableFaces.length);
-            facesAffected.push(availableFaces.splice(idx, 1)[0]);
+            const idx = Math.floor(Math.random() * available.length);
+            facesAffected.push(available.splice(idx, 1)[0]);
         }
-
         defects.push({
-            type: t.type,
-            label: t.label,
-            color: t.color,
+            type: t.type, label: t.label, color: t.color,
             facePenalty: t.facePenalty,
-            startFt,
-            endFt: startFt + len,
-            facesAffected
+            startFt, endFt: startFt + len, facesAffected
         });
     }
     return defects;
@@ -63,11 +101,12 @@ function loadLog(logObj) {
     totalLength     = logObj.length;
     buttDia         = logObj.butt;
     topDia          = logObj.top;
+    currentSpecies  = logObj.species || 'Red Oak';
     cuts            = [];
-    currentDefects  = generateDefects(totalLength);
+    currentDefects  = generateDefects(totalLength, currentSpecies);
 
     document.getElementById('logDesc').textContent =
-        `${totalLength}ft  |  Butt: ${buttDia}"  |  Top: ${topDia}"`;
+        `${currentSpecies} — ${totalLength}ft  |  Butt: ${buttDia}"  |  Top: ${topDia}"`;
     document.getElementById('logCounter').textContent =
         `Log ${currentLogIndex + 1} of ${TOTAL_LOGS}`;
     document.getElementById('nextLog').style.display   = 'none';
@@ -78,6 +117,7 @@ function loadLog(logObj) {
     if (optContainer) optContainer.style.display = 'none';
 
     buildDefectLegend();
+    resizeCanvases();
     drawLog();
 }
 
@@ -119,6 +159,35 @@ function getTrim()  {
     return isNaN(val) ? 0.25 : val / 12;
 }
 
+// ─── Responsive Canvas Resize ───────────────────────────────────────────────
+let _resizeTimer = null;
+function resizeCanvases() {
+    if (!totalLength) return;
+    const container = document.querySelector('.container');
+    const w = Math.min(800, container.clientWidth - 4);
+
+    canvas.width      = w;
+    canvas.height     = Math.max(160, Math.round(w * 200 / 800));
+    faceCanvas.width  = w;
+    faceCanvas.height = Math.max(72, Math.round(w * 88 / 800));
+
+    if (optCanvas && document.getElementById('optContainer').style.display !== 'none') {
+        optCanvas.width      = w;
+        optCanvas.height     = Math.max(160, Math.round(w * 200 / 800));
+        optFaceCanvas.width  = w;
+        optFaceCanvas.height = Math.max(72, Math.round(w * 88 / 800));
+    } else if (optCanvas) {
+        optCanvas.width      = w;
+        optCanvas.height     = Math.max(160, Math.round(w * 200 / 800));
+        optFaceCanvas.width  = w;
+        optFaceCanvas.height = Math.max(72, Math.round(w * 88 / 800));
+    }
+}
+window.addEventListener('resize', () => {
+    clearTimeout(_resizeTimer);
+    _resizeTimer = setTimeout(() => { resizeCanvases(); drawLog(); }, 150);
+});
+
 // ─── Draw Log ──────────────────────────────────────────────────────────────
 function drawLog() {
     drawLogGraphic(ctx, canvas, cuts);
@@ -148,10 +217,12 @@ function drawFaceMap(context, can, defects, cutsList) {
     context.clearRect(0, 0, can.width, can.height);
 
     const scale      = can.width / totalLength;
-    const tickH      = 20;   // px reserved for foot-tick row at top
+    const tickH      = Math.round(can.height * 20 / 88);
     const laneH      = Math.floor((can.height - tickH) / 4);
     const faceLabels = ['Face 1', 'Face 2', 'Face 3', 'Face 4'];
     const laneColors = ['#EAF0FA', '#F5F8FF', '#EAF0FA', '#F5F8FF'];
+    const laneFontSz = Math.max(8, Math.round(can.height / 8.8));
+    const tickFontSz = Math.max(7, Math.round(can.height / 10));
 
     // Lane backgrounds + labels
     for (let f = 0; f < 4; f++) {
@@ -166,9 +237,9 @@ function drawFaceMap(context, can, defects, cutsList) {
         context.stroke();
 
         context.fillStyle  = '#002855';
-        context.font       = 'bold 10px Arial';
+        context.font       = `bold ${laneFontSz}px Arial`;
         context.textAlign  = 'left';
-        context.fillText(faceLabels[f], 4, y + laneH / 2 + 3);
+        context.fillText(faceLabels[f], 4, y + laneH / 2 + Math.round(laneFontSz * 0.35));
     }
     // Bottom border
     context.strokeStyle = '#C0C8D8';
@@ -188,33 +259,35 @@ function drawFaceMap(context, can, defects, cutsList) {
             context.fillRect(x1, y + 2, x2 - x1, laneH - 4);
             context.globalAlpha = 1.0;
 
-            // Label inside block — show as much of the full label as fits
             const blockW = x2 - x1;
             if (blockW > 14) {
-                context.font      = 'bold 9px Arial';
+                context.font      = `bold ${Math.max(7, Math.round(laneFontSz * 0.9))}px Arial`;
                 context.textAlign = 'center';
                 context.fillStyle = '#fff';
-                // Pick label length that fits: full → 4-char abbrev → 1-char
-                const fullLabel = d.label;
+                const fullLabel  = d.label;
                 const shortLabel = fullLabel.substring(0, 4);
                 const label = blockW > 38 ? fullLabel : blockW > 18 ? shortLabel : fullLabel.charAt(0);
-                context.fillText(label, (x1 + x2) / 2, y + laneH / 2 + 3);
+                context.fillText(label, (x1 + x2) / 2, y + laneH / 2 + Math.round(laneFontSz * 0.3));
             }
         });
     });
 
     // Foot-tick marks at top
+    const spacing2ft = can.width / totalLength * 2;
+    const labelStep  = spacing2ft < 22 ? 4 : 2;
     for (let i = 0; i <= totalLength; i += 2) {
         const x = i * scale;
         context.strokeStyle = '#002855';
         context.lineWidth   = 1;
         context.beginPath();
-        context.moveTo(x, 5); context.lineTo(x, tickH - 2);
+        context.moveTo(x, Math.round(tickH * 0.25)); context.lineTo(x, tickH - 2);
         context.stroke();
-        context.fillStyle  = '#002855';
-        context.font       = '9px Arial';
-        context.textAlign  = 'center';
-        context.fillText(i.toString(), x, 13);
+        if (i % labelStep === 0) {
+            context.fillStyle  = '#002855';
+            context.font       = `${tickFontSz}px Arial`;
+            context.textAlign  = 'center';
+            context.fillText(i.toString(), x, Math.round(tickH * 0.65));
+        }
     }
 
     // Cut markers (dashed red lines)
@@ -235,8 +308,9 @@ function drawFaceMap(context, can, defects, cutsList) {
 function drawLogGraphic(context, can, cutsList) {
     context.clearRect(0, 0, can.width, can.height);
     const scale   = getScale(can);
-    const yCenter = 100;
-    const pxPerIn = 1.5;
+    const Hs      = can.height / 200;
+    const yCenter = 100 * Hs;
+    const pxPerIn = 1.5 * Hs;
 
     // Build taper points
     const points = [];
@@ -249,7 +323,7 @@ function drawLogGraphic(context, can, cutsList) {
 
     // Bold outline
     context.strokeStyle = '#8B4513';
-    context.lineWidth   = 8;
+    context.lineWidth   = Math.max(3, 8 * Hs);
     context.lineCap     = 'round';
     context.lineJoin    = 'round';
 
@@ -268,7 +342,7 @@ function drawLogGraphic(context, can, cutsList) {
     context.stroke();
 
     // Gray gradient fill
-    const grad = context.createLinearGradient(0, 80, can.width, 120);
+    const grad = context.createLinearGradient(0, 80 * Hs, can.width, 120 * Hs);
     grad.addColorStop(0, '#D8D8D8');
     grad.addColorStop(1, '#B0B0B0');
     context.fillStyle = grad;
@@ -286,16 +360,20 @@ function drawLogGraphic(context, can, cutsList) {
 
     // Foot ticks
     context.strokeStyle = '#000';
-    context.lineWidth   = 2;
+    context.lineWidth   = Math.max(1, 2 * Hs);
+    const spacing2ft    = can.width / totalLength * 2;
+    const labelStep     = spacing2ft < 22 ? 4 : 2;
     for (let i = 0; i <= totalLength; i += 2) {
         const x = i * scale;
         context.beginPath();
-        context.moveTo(x, 65); context.lineTo(x, 80);
+        context.moveTo(x, 65 * Hs); context.lineTo(x, 80 * Hs);
         context.stroke();
-        context.fillStyle  = '#000';
-        context.font       = '12px Arial';
-        context.textAlign  = 'center';
-        context.fillText(i.toString(), x, 60);
+        if (i % labelStep === 0) {
+            context.fillStyle  = '#000';
+            context.font       = `${Math.max(8, Math.round(12 * Hs))}px Arial`;
+            context.textAlign  = 'center';
+            context.fillText(i.toString(), x, 60 * Hs);
+        }
     }
 
     // Diameter labels
@@ -309,44 +387,47 @@ function drawLogGraphic(context, can, cutsList) {
         const isLast   = idx === labelFts.length - 1;
 
         context.strokeStyle = '#fff';
-        context.lineWidth   = 3;
+        context.lineWidth   = Math.max(1, 3 * Hs);
         context.beginPath();
-        context.moveTo(x, yCenter - radiusPx - 12);
-        context.lineTo(x, yCenter + radiusPx + 28);
+        context.moveTo(x, yCenter - radiusPx - 12 * Hs);
+        context.lineTo(x, yCenter + radiusPx + 28 * Hs);
         context.stroke();
 
-        context.font        = 'bold 16px Arial';
+        const fontSize  = Math.max(10, Math.round(16 * Hs));
+        context.font        = `bold ${fontSize}px Arial`;
         context.textAlign   = isLast ? 'right' : 'left';
-        const labelX    = isLast ? x - 6 : x + 6;
+        const labelX    = isLast ? x - 6 * Hs : x + 6 * Hs;
         context.strokeStyle = '#fff';
-        context.lineWidth   = 3;
-        context.strokeText(diaIn + '"', labelX, yCenter + 35);
+        context.lineWidth   = Math.max(1, 3 * Hs);
+        context.strokeText(diaIn + '"', labelX, yCenter + 35 * Hs);
         context.fillStyle   = '#000';
-        context.fillText(diaIn + '"', labelX, yCenter + 35);
+        context.fillText(diaIn + '"', labelX, yCenter + 35 * Hs);
     });
 
     // Cut markers
     cutsList.forEach(cut => {
         const x = cut * scale;
         context.strokeStyle = '#f00';
-        context.lineWidth   = 6;
+        context.lineWidth   = Math.max(3, 6 * Hs);
         context.lineCap     = 'round';
         context.beginPath();
-        context.moveTo(x, 45); context.lineTo(x, 155);
+        context.moveTo(x, 45 * Hs); context.lineTo(x, 155 * Hs);
         context.stroke();
 
-        context.font        = 'bold 13px Arial';
+        const cutFontSz = Math.max(9, Math.round(13 * Hs));
+        context.font        = `bold ${cutFontSz}px Arial`;
         context.textAlign   = 'center';
         context.strokeStyle = '#f00';
         context.lineWidth   = 1.5;
-        context.strokeText(cut.toFixed(1) + "'", x, 42);
+        context.strokeText(cut.toFixed(1) + "'", x, 42 * Hs);
         context.fillStyle   = '#fff';
-        context.fillText(cut.toFixed(1) + "'", x, 42);
+        context.fillText(cut.toFixed(1) + "'", x, 42 * Hs);
     });
 }
 
 // ─── Draw Defects ──────────────────────────────────────────────────────────
 function drawDefects(context, defects, scale, yCenter, pxPerIn) {
+    const Hs = pxPerIn / 1.5;
     defects.forEach(d => {
         const x1    = d.startFt * scale;
         const x2    = d.endFt   * scale;
@@ -362,9 +443,9 @@ function drawDefects(context, defects, scale, yCenter, pxPerIn) {
             const numKnots = Math.max(2, Math.round((x2 - x1) / 15));
             for (let k = 0; k < numKnots; k++) {
                 const kx = x1 + ((k + 0.5) / numKnots) * (x2 - x1);
-                const ky = yCenter - r + 8 + (k % 2) * 8;
+                const ky = yCenter - r + 8 * Hs + (k % 2) * 8 * Hs;
                 context.beginPath();
-                context.arc(kx, ky, 6, 0, Math.PI * 2);
+                context.arc(kx, ky, 6 * Hs, 0, Math.PI * 2);
                 context.fill();
             }
         } else if (d.type === 'rot') {
@@ -372,41 +453,39 @@ function drawDefects(context, defects, scale, yCenter, pxPerIn) {
             context.fillRect(x1, yCenter - r, x2 - x1, r * 2);
         } else if (d.type === 'seam') {
             context.strokeStyle = d.color;
-            context.lineWidth   = 4;
+            context.lineWidth   = Math.max(2, 4 * Hs);
             context.beginPath();
-            context.moveTo(x1, yCenter - r + 5);
-            context.lineTo(x2, yCenter - r + 5);
+            context.moveTo(x1, yCenter - r + 5 * Hs);
+            context.lineTo(x2, yCenter - r + 5 * Hs);
             context.stroke();
         } else if (d.type === 'sweep') {
             context.fillStyle = d.color;
-            context.fillRect(x1, yCenter + r - 10, x2 - x1, 10);
+            context.fillRect(x1, yCenter + r - 10 * Hs, x2 - x1, 10 * Hs);
         }
 
         context.globalAlpha = 1.0;
 
         // Defect label above stem
-        context.font        = 'bold 11px Arial';
+        const labelFontSz = Math.max(8, Math.round(11 * Hs));
+        context.font        = `bold ${labelFontSz}px Arial`;
         context.textAlign   = 'center';
         context.strokeStyle = '#fff';
-        context.lineWidth   = 2;
-        context.strokeText(d.label, (x1 + x2) / 2, yCenter - r - 6);
+        context.lineWidth   = Math.max(1, 2 * Hs);
+        context.strokeText(d.label, (x1 + x2) / 2, yCenter - r - 6 * Hs);
         context.fillStyle   = d.color;
-        context.fillText(d.label, (x1 + x2) / 2, yCenter - r - 6);
+        context.fillText(d.label, (x1 + x2) / 2, yCenter - r - 6 * Hs);
     });
 }
 
 // ─── Mouse Event Handlers ──────────────────────────────────────────────────
 canvas.addEventListener('mousedown', (e) => {
-    const scale = getScale();
     const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / scale;
-    
-    // Check if clicking near an existing cut (within 0.4 ft)
+    const x    = (e.clientX - rect.left) * totalLength / rect.width;
+
     const idx = cuts.findIndex(c => Math.abs(c - x) < 0.4);
     if (idx !== -1) {
         dragIdx = idx;
     } else {
-        // Add a new cut
         const snapX = Math.round(x * 10) / 10;
         cuts.push(snapX);
         cuts.sort((a, b) => a - b);
@@ -416,23 +495,56 @@ canvas.addEventListener('mousedown', (e) => {
 });
 
 window.addEventListener('mousemove', (e) => {
-    const scale = getScale();
     const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / scale;
+    const x    = (e.clientX - rect.left) * totalLength / rect.width;
 
     if (dragIdx !== -1) {
-        // Update the cut's position, clamping to log bounds
-        let newX = Math.max(0, Math.min(totalLength, x));
-        cuts[dragIdx] = Math.round(newX * 10) / 10; // Snap to 0.1 ft
+        cuts[dragIdx] = Math.round(Math.max(0, Math.min(totalLength, x)) * 10) / 10;
         drawLog();
     } else {
-        // Change cursor if hovering over a cut
         const idx = cuts.findIndex(c => Math.abs(c - x) < 0.4);
         canvas.style.cursor = (idx !== -1) ? 'ew-resize' : 'crosshair';
     }
 });
 
 window.addEventListener('mouseup', () => {
+    if (dragIdx !== -1) {
+        cuts.sort((a, b) => a - b);
+        dragIdx = -1;
+        drawLog();
+    }
+});
+
+// ─── Touch Events ──────────────────────────────────────────────────────────
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const rect  = canvas.getBoundingClientRect();
+    const touch = e.touches[0];
+    const x     = (touch.clientX - rect.left) * totalLength / rect.width;
+
+    const idx = cuts.findIndex(c => Math.abs(c - x) < 1.0);
+    if (idx !== -1) {
+        dragIdx = idx;
+    } else {
+        const snapX = Math.round(x * 10) / 10;
+        cuts.push(snapX);
+        cuts.sort((a, b) => a - b);
+        dragIdx = cuts.indexOf(snapX);
+        drawLog();
+    }
+}, { passive: false });
+
+window.addEventListener('touchmove', (e) => {
+    if (dragIdx === -1) return;
+    e.preventDefault();
+    const rect  = canvas.getBoundingClientRect();
+    const touch = e.touches[0];
+    const x     = (touch.clientX - rect.left) * totalLength / rect.width;
+    cuts[dragIdx] = Math.round(Math.max(0, Math.min(totalLength, x)) * 10) / 10;
+    drawLog();
+}, { passive: false });
+
+window.addEventListener('touchend', () => {
     if (dragIdx !== -1) {
         cuts.sort((a, b) => a - b);
         dragIdx = -1;
