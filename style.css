@@ -1,12 +1,15 @@
 body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #ffffff; }
 .container { max-width: 900px; margin: auto; text-align: center; }
-#logCanvas { border: 2px solid #333; background: linear-gradient(to bottom, #e8e8e8, #dddbdb); cursor: crosshair; }
-#optCanvas { border: 2px solid #27ae60; background: linear-gradient(to bottom, #e8e8e8, #dddbdb); cursor: default; }
+h1 { color: #002855; border-bottom: 3px solid #EAAA00; padding-bottom: 8px; margin-bottom: 12px; }
+#logCanvas    { border: 2px solid #002855; background: linear-gradient(to bottom, #e8e8e8, #dddbdb); cursor: crosshair; display: block; margin: 0 auto; }
+#optCanvas    { border: 2px solid #EAAA00; background: linear-gradient(to bottom, #e8e8e8, #dddbdb); cursor: default;    display: block; margin: 0 auto; }
+#faceCanvas   { border: 2px solid #002855; border-top: none; background: #f5f8ff; display: block; margin: 0 auto; }
+#optFaceCanvas{ border: 2px solid #EAAA00; border-top: none; background: #f5f8ff; display: block; margin: 0 auto; }
 #info { margin: 20px 0; font-size: 18px; }
-button { padding: 10px 20px; margin: 0 10px; background: #4CAF50; color: white; border: none; cursor: pointer; }
-button:hover { background: #45a049; }
+button { padding: 10px 20px; margin: 0 10px; background: #EAAA00; color: #002855; font-weight: bold; border: none; cursor: pointer; border-radius: 4px; }
+button:hover { background: #C9930A; color: #fff; }
 #segments { margin-top: 20px; text-align: left; }
-.segment { background: #ffffff; padding: 10px; margin: 5px 0; border-radius: 5px; }
+.segment { background: #ffffff; padding: 10px; margin: 5px 0; border-radius: 5px; border: 1px solid #e0e0e0; }
 #gameHeader {
     display: flex;
     justify-content: space-between;
@@ -14,9 +17,10 @@ button:hover { background: #45a049; }
     font-weight: bold;
     margin-bottom: 10px;
     padding: 8px 12px;
-    background: #333;
+    background: #002855;
     color: #fff;
     border-radius: 6px;
+    border-bottom: 3px solid #EAAA00;
 }
 #logInfo {
     margin-bottom: 10px;

@@ -24,12 +24,39 @@
         </div>
         
         <div id="defectLegend"></div>
+
+        <details id="gradingRef" style="margin-bottom:12px; text-align:left; font-size:13px;">
+            <summary style="cursor:pointer; font-weight:bold; color:#002855;">&#9432; Grading Reference (AHMI — diameter × clear faces)</summary>
+            <table id="gradingTable" style="margin-top:8px; border-collapse:collapse; width:100%;">
+                <thead>
+                    <tr style="background:#002855; color:#fff;">
+                        <th style="padding:5px 10px;">Small-End Dia.</th>
+                        <th style="padding:5px 10px;">4 Faces</th>
+                        <th style="padding:5px 10px;">3 Faces</th>
+                        <th style="padding:5px 10px;">2 Faces</th>
+                        <th style="padding:5px 10px;">1 Face</th>
+                        <th style="padding:5px 10px;">0 Faces</th>
+                    </tr>
+                </thead>
+                <tbody id="gradingTableBody"></tbody>
+            </table>
+            <p style="margin:6px 0 0; color:#555; font-size:12px;">
+                Prices: Prime $2.50 &bull; Select+ $2.10 &bull; Select $1.80 &bull; No.1+ $1.50 &bull; No.1 $1.20 &bull; No.2+ $1.00 &bull; No.2 $0.80 &bull; No.3 $0.30 /bf<br>
+                <em>Rot: 2× face penalty per affected face &bull; Sweep: reduces scaling diameter (0.5"/face)</em>
+            </p>
+        </details>
         
         <canvas id="logCanvas" width="800" height="200"></canvas>
+        <div style="font-size:11px; font-weight:bold; color:#002855; text-align:left;
+                    margin:2px 0 0; letter-spacing:0.03em;">&#9632; Face Defect Map</div>
+        <canvas id="faceCanvas" width="800" height="88"></canvas>
 
-        <div id="optContainer" style="display:none; margin-top:10px;">
-            <h3 style="margin:0 0 5px 0; font-size:16px; color:#27ae60;">✓ Optimal Bucking Solution</h3>
+        <div id="optContainer" style="display:none; margin-top:14px;">
+            <h3 style="margin:0 0 5px 0; font-size:16px; color:#002855;">&#10003; Optimal Bucking Solution</h3>
             <canvas id="optCanvas" width="800" height="200"></canvas>
+            <div style="font-size:11px; font-weight:bold; color:#002855; text-align:left;
+                        margin:2px 0 0; letter-spacing:0.03em;">&#9632; Face Defect Map (Optimal Cuts)</div>
+            <canvas id="optFaceCanvas" width="800" height="88"></canvas>
         </div>
 
         <div id="info">
@@ -42,6 +69,9 @@
         <div id="segments"></div>
         <div id="finalScore" style="display:none;"></div>
     </div>
+
+    <div id="finalReport" style="display:none; max-width:900px; margin:auto; padding:20px; font-family:Arial,sans-serif;"></div>
+
     <script src="script.js"></script>
 </body>
 </html>

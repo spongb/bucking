@@ -85,10 +85,18 @@ function loadLog(logObj) {
 function buildDefectLegend() {
     let html = '<div style="margin:8px 0; font-size:14px;"><strong>Defects on this stem:</strong> ';
     currentDefects.forEach(d => {
+        let penaltyNote;
+        if (d.type === 'sweep') {
+            penaltyNote = `−${(d.facesAffected.length * 0.5).toFixed(1)}" dia.`;
+        } else {
+            const faceDeduct = d.facesAffected.length * d.facePenalty;
+            penaltyNote = `−${faceDeduct} face${faceDeduct !== 1 ? 's' : ''}${d.facePenalty > 1 ? ' (2× rot)' : ''}`;
+        }
         html += `<span style="background:${d.color}; color:#fff; padding:2px 8px;
-                 border-radius:4px; margin:2px; display:inline-block;">
+                 border-radius:4px; margin:2px; display:inline-flex; align-items:center; gap:4px;">
                  ${d.label} ${d.startFt.toFixed(1)}–${d.endFt.toFixed(1)}ft
-                 (−${d.facesAffected.length} face${d.facesAffected.length > 1 ? 's' : ''})
+                 (${penaltyNote})
+                 ${makeFaceIndicator(d.facesAffected, d.color)}
                  </span>`;
     });
     html += '</div>';
@@ -96,10 +104,14 @@ function buildDefectLegend() {
 }
 
 // ─── Canvas Setup ──────────────────────────────────────────────────────────
-const canvas = document.getElementById('logCanvas');
-const ctx    = canvas.getContext('2d');
-const optCanvas = document.getElementById('optCanvas');
-const optCtx    = optCanvas ? optCanvas.getContext('2d') : null;
+const canvas        = document.getElementById('logCanvas');
+const ctx           = canvas.getContext('2d');
+const optCanvas     = document.getElementById('optCanvas');
+const optCtx        = optCanvas    ? optCanvas.getContext('2d')    : null;
+const faceCanvas    = document.getElementById('faceCanvas');
+const faceCtx       = faceCanvas   ? faceCanvas.getContext('2d')   : null;
+const optFaceCanvas = document.getElementById('optFaceCanvas');
+const optFaceCtx    = optFaceCanvas ? optFaceCanvas.getContext('2d') : null;
 
 function getScale(cvs = canvas) { return cvs.width / totalLength; }
 function getTrim()  {
@@ -110,7 +122,114 @@ function getTrim()  {
 // ─── Draw Log ──────────────────────────────────────────────────────────────
 function drawLog() {
     drawLogGraphic(ctx, canvas, cuts);
+    drawFaceMap(faceCtx, faceCanvas, currentDefects, cuts);
     updateSegments();
+}
+
+// ─── Face SVG Indicator (4-quadrant badge for legend) ──────────────────────
+function makeFaceIndicator(facesAffected, color) {
+    const cells = [0, 1, 2, 3].map(f => {
+        const fill = facesAffected.includes(f) ? color : '#ddd';
+        const col = f % 2, row = Math.floor(f / 2);
+        return `<rect x="${col * 10 + 1}" y="${row * 10 + 1}" width="8" height="8" fill="${fill}" rx="1"/>`;
+    }).join('');
+    return `<svg width="20" height="20" style="vertical-align:middle;margin-left:5px;"
+                 title="Highlighted quadrants = affected faces">
+        <rect width="20" height="20" fill="#f0f0f0" rx="2" stroke="#999" stroke-width="0.5"/>
+        ${cells}
+        <line x1="10" y1="0" x2="10" y2="20" stroke="#aaa" stroke-width="0.5"/>
+        <line x1="0"  y1="10" x2="20" y2="10" stroke="#aaa" stroke-width="0.5"/>
+    </svg>`;
+}
+
+// ─── Draw Face Map Canvas ───────────────────────────────────────────────────
+function drawFaceMap(context, can, defects, cutsList) {
+    if (!context || !can) return;
+    context.clearRect(0, 0, can.width, can.height);
+
+    const scale      = can.width / totalLength;
+    const tickH      = 20;   // px reserved for foot-tick row at top
+    const laneH      = Math.floor((can.height - tickH) / 4);
+    const faceLabels = ['Face 1', 'Face 2', 'Face 3', 'Face 4'];
+    const laneColors = ['#EAF0FA', '#F5F8FF', '#EAF0FA', '#F5F8FF'];
+
+    // Lane backgrounds + labels
+    for (let f = 0; f < 4; f++) {
+        const y = tickH + f * laneH;
+        context.fillStyle = laneColors[f];
+        context.fillRect(0, y, can.width, laneH);
+
+        context.strokeStyle = '#C0C8D8';
+        context.lineWidth   = 0.5;
+        context.beginPath();
+        context.moveTo(0, y); context.lineTo(can.width, y);
+        context.stroke();
+
+        context.fillStyle  = '#002855';
+        context.font       = 'bold 10px Arial';
+        context.textAlign  = 'left';
+        context.fillText(faceLabels[f], 4, y + laneH / 2 + 3);
+    }
+    // Bottom border
+    context.strokeStyle = '#C0C8D8';
+    context.lineWidth   = 0.5;
+    context.beginPath();
+    context.moveTo(0, tickH + 4 * laneH); context.lineTo(can.width, tickH + 4 * laneH);
+    context.stroke();
+
+    // Defect blocks
+    defects.forEach(d => {
+        const x1 = d.startFt * scale;
+        const x2 = d.endFt   * scale;
+        d.facesAffected.forEach(f => {
+            const y = tickH + f * laneH;
+            context.globalAlpha = 0.78;
+            context.fillStyle   = d.color;
+            context.fillRect(x1, y + 2, x2 - x1, laneH - 4);
+            context.globalAlpha = 1.0;
+
+            // Label inside block — show as much of the full label as fits
+            const blockW = x2 - x1;
+            if (blockW > 14) {
+                context.font      = 'bold 9px Arial';
+                context.textAlign = 'center';
+                context.fillStyle = '#fff';
+                // Pick label length that fits: full → 4-char abbrev → 1-char
+                const fullLabel = d.label;
+                const shortLabel = fullLabel.substring(0, 4);
+                const label = blockW > 38 ? fullLabel : blockW > 18 ? shortLabel : fullLabel.charAt(0);
+                context.fillText(label, (x1 + x2) / 2, y + laneH / 2 + 3);
+            }
+        });
+    });
+
+    // Foot-tick marks at top
+    for (let i = 0; i <= totalLength; i += 2) {
+        const x = i * scale;
+        context.strokeStyle = '#002855';
+        context.lineWidth   = 1;
+        context.beginPath();
+        context.moveTo(x, 5); context.lineTo(x, tickH - 2);
+        context.stroke();
+        context.fillStyle  = '#002855';
+        context.font       = '9px Arial';
+        context.textAlign  = 'center';
+        context.fillText(i.toString(), x, 13);
+    }
+
+    // Cut markers (dashed red lines)
+    if (cutsList && cutsList.length > 0) {
+        context.setLineDash([3, 3]);
+        context.strokeStyle = 'rgba(200,0,0,0.85)';
+        context.lineWidth   = 2;
+        cutsList.forEach(cut => {
+            const x = cut * scale;
+            context.beginPath();
+            context.moveTo(x, tickH); context.lineTo(x, can.height);
+            context.stroke();
+        });
+        context.setLineDash([]);
+    }
 }
 
 function drawLogGraphic(context, can, cutsList) {
@@ -331,8 +450,9 @@ function doyleVolume(dia, len) {
 function getClearFaces(startFt, endFt, defects) {
     let faces = 4;
     defects.forEach(d => {
+        if (d.type === 'sweep') return; // sweep is handled as a diameter deduction, not a face penalty
         const overlaps = d.startFt < endFt && d.endFt > startFt;
-        if (overlaps) faces -= d.facesAffected.length;
+        if (overlaps) faces -= d.facesAffected.length * d.facePenalty;
     });
     return Math.max(0, faces);
 }
@@ -340,15 +460,16 @@ function getClearFaces(startFt, endFt, defects) {
 // ─── AHMI Grading Matrix (from PDF Page 14) ──────────────────────────────
 function getGradeAndPrice(dia, clearFaces) {
     const d = Math.floor(dia);
-    const faceIdx = 4 - clearFaces; // 4 faces -> index 0, 3 faces -> index 1, etc.
-    
+    const faceIdx = Math.min(4, 4 - clearFaces); // 4 faces -> index 0, 3 faces -> index 1, etc.
+
     let grade = 'No. 3';
     if      (d >= 17) grade = ['Prime',    'Select+', 'Select',  'No. 2+', 'No. 2'][faceIdx];
     else if (d >= 16) grade = ['Select+',  'No. 1+',  'No. 1',   'No. 2+', 'No. 2'][faceIdx];
     else if (d >= 15) grade = ['Select+',  'No. 1+',  'No. 2+',  'No. 2',  'No. 3'][faceIdx];
     else if (d >= 14) grade = ['Select',   'No. 1',   'No. 2+',  'No. 2',  'No. 3'][faceIdx];
     else if (d >= 13) grade = ['No. 1+',   'No. 2+',  'No. 2',   'No. 3',  'No. 3'][faceIdx];
-    else if (d >= 11) grade = ['No. 2+',   'No. 2',   'No. 3',   'No. 3',  'No. 3'][faceIdx];
+    else if (d >= 12) grade = ['No. 2+',   'No. 2',   'No. 3',   'No. 3',  'No. 3'][faceIdx];
+    else if (d >= 11) grade = ['No. 2',    'No. 3',   'No. 3',   'No. 3',  'No. 3'][faceIdx];
     else              grade = 'No. 3';
 
     const prices = {
@@ -385,16 +506,25 @@ function scoreSegments(cutList, defects) {
             const scalingFt  = prevFt + nomLen;
             const frac       = scalingFt / totalLength;
             const scalingDia = buttDia - (buttDia - topDia) * frac;
-            
+
+            // Sweep/crook: reduces effective scaling diameter (volume deduction)
+            let effectiveDia = scalingDia;
+            defects.filter(d => d.type === 'sweep').forEach(d => {
+                if (d.startFt < prevFt + nomLen && d.endFt > prevFt) {
+                    effectiveDia -= d.facesAffected.length * 0.5;
+                }
+            });
+            effectiveDia = Math.max(6, effectiveDia);
+
             const clearFaces = getClearFaces(prevFt, prevFt + nomLen, defects);
-            const volumeBF   = doyleVolume(scalingDia, nomLen);
-            const gradeInfo  = getGradeAndPrice(scalingDia, clearFaces);
+            const volumeBF   = doyleVolume(effectiveDia, nomLen);
+            const gradeInfo  = getGradeAndPrice(effectiveDia, clearFaces);
             const value      = Math.round(volumeBF * gradeInfo.pricePerBF);
             
             totalValue += value;
-            segs.push({ endFt, physicalLen, nomLen, scalingDia, clearFaces, volumeBF, gradeInfo, value });
+            segs.push({ startFt: prevFt, endFt, physicalLen, nomLen, scalingDia, clearFaces, volumeBF, gradeInfo, value });
         } else {
-            segs.push({ endFt, physicalLen, nomLen: 0, scalingDia: 0, clearFaces: 0, volumeBF: 0, 
+            segs.push({ startFt: prevFt, endFt, physicalLen, nomLen: 0, scalingDia: 0, clearFaces: 0, volumeBF: 0,
                         gradeInfo: { grade: 'Pulp/Waste', pricePerBF: 0 }, value: 0 });
         }
         prevFt = endFt;
@@ -403,29 +533,30 @@ function scoreSegments(cutList, defects) {
     return { totalValue, segs };
 }
 
-// ─── Live Segment Display ──────────────────────────────────────────────────
+// ─── Live Segment Display (pre-score: piece length + diameter only) ────────
 function updateSegments() {
-    const { totalValue, segs } = scoreSegments(cuts, currentDefects);
+    const { segs } = scoreSegments(cuts, currentDefects);
     let html = '';
     segs.forEach((s, i) => {
         if (s.nomLen > 0) {
-            const faceColor = s.clearFaces >= 3 ? '#27ae60' : s.clearFaces >= 2 ? '#e67e22' : '#c0392b';
+            const buttEnd = s.startFt;
+            const tipFt   = s.startFt + s.nomLen;
+            const buttDiaAtCut = Math.round((buttDia - (buttDia - topDia) * (buttEnd / totalLength)) * 10) / 10;
+            const tipDiaAtCut  = Math.round((buttDia - (buttDia - topDia) * (tipFt  / totalLength)) * 10) / 10;
             html += `<div class="segment">
-                Log ${i+1}: <strong>${s.nomLen}'</strong> (from ${s.physicalLen.toFixed(1)}' piece) @
-                ${s.scalingDia.toFixed(1)}" |
-                <span style="color:${faceColor}; font-weight:bold;">${s.clearFaces} clear faces</span>
-                &rarr; ${s.volumeBF} bf
-                <strong>${s.gradeInfo.grade}</strong> &rarr; $${s.value}
+                Piece ${i+1}: <strong>${s.nomLen}'</strong> log
+                (${s.physicalLen.toFixed(1)}' cut) &mdash;
+                butt ${buttDiaAtCut}" &rarr; small end ${tipDiaAtCut}"
             </div>`;
         } else {
             html += `<div class="segment" style="color:#777; font-style:italic;">
-                Piece ${i+1}: ${s.physicalLen.toFixed(1)}' &rarr; Under 8' standard (Wasted)
+                Piece ${i+1}: ${s.physicalLen.toFixed(1)}' &mdash; too short for any standard length (wasted)
             </div>`;
         }
     });
     document.getElementById('segments').innerHTML = html;
     document.getElementById('segmentCount').textContent = segs.filter(s => s.nomLen > 0).length;
-    document.getElementById('totalValue').textContent   = totalValue.toFixed(0);
+    document.getElementById('totalValue').textContent = '—';
 }
 
 // ─── Optimal Solver ────────────────────────────────────────────────────────
@@ -447,8 +578,16 @@ function computeOptimal() {
             // Optimal scaling diameter at the small end of the nominal log
             const scalingFt = startFt + nomLen;
             const frac      = scalingFt / totalLength;
-            const dia       = buttDia - (buttDia - topDia) * frac;
-            
+            let dia         = buttDia - (buttDia - topDia) * frac;
+
+            // Sweep/crook diameter deduction
+            currentDefects.filter(d => d.type === 'sweep').forEach(d => {
+                if (d.startFt < startFt + nomLen && d.endFt > startFt) {
+                    dia -= d.facesAffected.length * 0.5;
+                }
+            });
+            dia = Math.max(6, dia);
+
             const faces     = getClearFaces(startFt, startFt + nomLen, currentDefects);
             const vol       = doyleVolume(dia, nomLen);
             const grade     = getGradeAndPrice(dia, faces);
@@ -467,6 +606,117 @@ function computeOptimal() {
     return { optCuts, optValue: dp[0] };
 }
 
+// ─── Explain Why Optimal Differs ───────────────────────────────────────────
+function generateBuckingExplanation(userSegs, optSegs, defects) {
+    const userValue = userSegs.reduce((s, g) => s + g.value, 0);
+    const optValue  = optSegs.reduce((s, g) => s + g.value, 0);
+
+    if (userValue >= optValue) {
+        return `<div style="background:#e8f5e9; border:1px solid #EAAA00; border-radius:8px;
+                             padding:12px 16px; margin:12px 0; font-size:14px;">
+            <strong style="color:#002855;">&#128077; You matched the optimal solution!</strong>
+        </div>`;
+    }
+
+    // Helper: find defects overlapping a segment
+    function overlappingDefects(startFt, endFt) {
+        return defects.filter(d => d.startFt < endFt && d.endFt > startFt);
+    }
+
+    // Describe why a segment got the grade it did
+    function describeSegment(s, label) {
+        if (s.nomLen === 0) {
+            return `<li><strong>${label}:</strong> ${s.physicalLen.toFixed(1)}' piece was too short for
+                any standard log length (min 8') and was wasted.</li>`;
+        }
+        const active = overlappingDefects(s.startFt, s.startFt + s.nomLen);
+        let defectDesc = '';
+        if (active.length === 0) {
+            defectDesc = 'No defects in this section — grade is diameter-limited only.';
+        } else {
+            const parts = active.map(d => {
+                if (d.type === 'sweep') {
+                    const ded = (d.facesAffected.length * 0.5).toFixed(1);
+                    return `<em>Sweep</em> (${d.startFt.toFixed(1)}–${d.endFt.toFixed(1)}ft) reduced the scaling diameter by ${ded}"`;
+                } else {
+                    const rawPenalty = d.facesAffected.length * d.facePenalty;
+                    const penalty = Math.min(rawPenalty, 4);
+                    const typeLabel = d.label;
+                    let penaltyNote = '';
+                    if (d.facePenalty > 1) {
+                        penaltyNote = ` (${d.facesAffected.length} face${d.facesAffected.length !== 1 ? 's' : ''} × 2× rot penalty${rawPenalty > 4 ? ', all 4 faces eliminated' : ''})`;
+                    }
+                    return `<em>${typeLabel}</em> (${d.startFt.toFixed(1)}–${d.endFt.toFixed(1)}ft) removed ${penalty} clear face${penalty !== 1 ? 's' : ''}${penaltyNote}`;
+                }
+            });
+            defectDesc = parts.join('; ') + '.';
+        }
+        return `<li><strong>${label}:</strong> ${s.nomLen}' log scaled at ${s.scalingDia.toFixed(1)}" —
+            ${s.clearFaces} clear face${s.clearFaces !== 1 ? 's' : ''} &rarr;
+            <strong>${s.gradeInfo.grade}</strong> @ $${s.gradeInfo.pricePerBF.toFixed(2)}/bf
+            ($${s.value}). ${defectDesc}</li>`;
+    }
+
+    // Build comparison bullets: for each optimal piece that beats the user's nearest piece
+    let comparisons = '';
+    optSegs.forEach((opt, oi) => {
+        if (opt.nomLen === 0) return;
+        // Find the user segment that covers the most overlap with this optimal piece
+        const userMatch = userSegs.find(us =>
+            us.startFt < opt.startFt + opt.nomLen && us.endFt > opt.startFt && us.nomLen > 0
+        );
+        if (!userMatch) return;
+        if (opt.gradeInfo.grade === userMatch.gradeInfo.grade && opt.value <= userMatch.value) return;
+        const diff = opt.value - userMatch.value;
+        if (diff <= 0) return;
+
+        let why = '';
+        const optDefects  = overlappingDefects(opt.startFt, opt.startFt + opt.nomLen);
+        const userDefects = overlappingDefects(userMatch.startFt, userMatch.startFt + userMatch.nomLen);
+        const avoided = userDefects.filter(d => !optDefects.some(od => od === d));
+        if (avoided.length > 0) {
+            const names = avoided.map(d => `${d.label} at ${d.startFt.toFixed(1)}–${d.endFt.toFixed(1)}ft`).join(', ');
+            why = `The optimal cut isolated around the ${names}, keeping more clear faces.`;
+        } else if (opt.nomLen !== userMatch.nomLen) {
+            why = `Choosing a ${opt.nomLen}' length instead of ${userMatch.nomLen}' captured a better diameter/defect combination.`;
+        } else if (opt.scalingDia > userMatch.scalingDia + 0.5) {
+            why = `Positioning the cut ${(userMatch.startFt - opt.startFt).toFixed(1)}ft closer to the butt kept a larger scaling diameter (${opt.scalingDia.toFixed(1)}" vs ${userMatch.scalingDia.toFixed(1)}").`;
+        } else {
+            why = `A different cut position yielded ${opt.clearFaces} clear faces vs your ${userMatch.clearFaces}, improving from ${userMatch.gradeInfo.grade} to ${opt.gradeInfo.grade}.`;
+        }
+        comparisons += `<li style="margin-top:6px;"><strong>Optimal Piece ${oi+1} ($${opt.value} vs your $${userMatch.value}, +$${diff}):</strong> ${why}</li>`;
+    });
+
+    // Summarize the overall gap
+    const gap = optValue - userValue;
+    const userGoodSegs  = userSegs.filter(s => s.nomLen > 0 && s.clearFaces < 4);
+    const mainReason = userGoodSegs.length > 0
+        ? 'defect isolation and clear-face positioning'
+        : 'log length selection and diameter capture';
+
+    let html = `<details style="background:#f5f8ff; border:2px solid #002855; border-radius:8px;
+                                 padding:12px 16px; margin:12px 0; font-size:14px;" open>
+        <summary style="cursor:pointer; font-weight:bold; color:#002855; font-size:15px;">
+            &#128270; Why is the optimal solution $${gap} more? (click to collapse)
+        </summary>
+        <p style="margin:8px 0 4px; color:#444;">
+            The optimal solution recovered <strong>$${optValue}</strong> vs your <strong>$${userValue}</strong>
+            — a difference of <strong>$${gap}</strong> — primarily through better <em>${mainReason}</em>.
+        </p>
+        <p style="margin:4px 0; font-weight:bold; color:#002855;">Your segments:</p>
+        <ul style="margin:4px 0 8px; padding-left:20px; line-height:1.7;">
+            ${userSegs.map((s, i) => describeSegment(s, `Piece ${i+1}`)).join('')}
+        </ul>`;
+
+    if (comparisons) {
+        html += `<p style="margin:4px 0; font-weight:bold; color:#002855;">Where optimal gained value:</p>
+        <ul style="margin:4px 0; padding-left:20px; line-height:1.7;">${comparisons}</ul>`;
+    }
+
+    html += `</details>`;
+    return html;
+}
+
 // ─── Score This Log ────────────────────────────────────────────────────────
 document.getElementById('scoreLog').addEventListener('click', () => {
     const { optCuts, optValue }  = computeOptimal();
@@ -476,7 +726,7 @@ document.getElementById('scoreLog').addEventListener('click', () => {
     const pct                    = optValue > 0 ? Math.round((totalValue / optValue) * 100) : 0;
     const scoreColor             = pct >= 90 ? '#27ae60' : pct >= 70 ? '#e67e22' : '#c0392b';
 
-    logScores.push({ pct, totalValue, optValue, logNum: currentLogIndex + 1 });
+    logScores.push({ pct, totalValue, optValue, leftOnTable: optValue - totalValue, logNum: currentLogIndex + 1 });
     updateRunningScore();
 
     // Show optimal canvas
@@ -484,20 +734,24 @@ document.getElementById('scoreLog').addEventListener('click', () => {
     if (optContainer && optCtx) {
         optContainer.style.display = 'block';
         drawLogGraphic(optCtx, optCanvas, optCuts);
+        drawFaceMap(optFaceCtx, optFaceCanvas, currentDefects, optCuts);
     }
 
     let html = `
-        <div style="background:#fff3cd; padding:15px; border-radius:8px; margin:15px 0;
-                    font-size:16px; border:1px solid #ffc107;">
+        <div style="background:#FFF8E1; padding:15px; border-radius:8px; margin:15px 0;
+                    font-size:16px; border:2px solid #EAAA00;">
             <strong>Log ${currentLogIndex + 1} Result:</strong>
             Your Value: <strong>$${totalValue}</strong> &nbsp;|&nbsp;
             Optimal: <strong>$${optValue}</strong> &nbsp;|&nbsp;
             <strong style="color:${scoreColor}; font-size:20px;">${pct}%</strong>
             &nbsp;(trim = ${(trim * 12).toFixed(0)}" per log)
-        </div>
-        <div style="display:flex; gap:20px; flex-wrap:wrap;">
+        </div>`;
+
+    html += generateBuckingExplanation(segs, optSegs, currentDefects);
+
+    html += `<div style="display:flex; gap:20px; flex-wrap:wrap;">
             <div style="flex:1; min-width:220px;">
-                <h3 style="color:#c0392b;">✏ Your Bucking — $${totalValue}</h3>`;
+                <h3 style="color:#c0392b;">&#9999; Your Bucking — $${totalValue}</h3>`;
 
     segs.forEach((s, i) => {
         if (s.nomLen > 0) {
@@ -506,7 +760,7 @@ document.getElementById('scoreLog').addEventListener('click', () => {
                 Log ${i+1}: <strong>${s.nomLen}'</strong> (${s.physicalLen.toFixed(1)}' piece) @
                 ${s.scalingDia.toFixed(1)}" |
                 <span style="color:${faceColor}; font-weight:bold;">${s.clearFaces} clear faces</span>
-                &rarr; $${s.value}
+                &rarr; <strong>${s.gradeInfo.grade}</strong> &rarr; $${s.value}
             </div>`;
         } else {
             html += `<div class="segment" style="border-left:4px solid #ccc; color:#777;">
@@ -516,15 +770,15 @@ document.getElementById('scoreLog').addEventListener('click', () => {
     });
 
     html += `</div><div style="flex:1; min-width:220px;">
-                <h3 style="color:#27ae60;">✓ Optimal Bucking — $${optValue}</h3>`;
+                <h3 style="color:#002855;">&#10003; Optimal Bucking — $${optValue}</h3>`;
 
     optSegs.forEach((s, i) => {
         const faceColor = s.clearFaces >= 3 ? '#27ae60' : s.clearFaces >= 2 ? '#e67e22' : '#c0392b';
-        html += `<div class="segment" style="border-left:4px solid #27ae60;">
+        html += `<div class="segment" style="border-left:4px solid #EAAA00;">
             Log ${i+1}: <strong>${s.nomLen}'</strong> @
             ${s.scalingDia.toFixed(1)}" |
             <span style="color:${faceColor}; font-weight:bold;">${s.clearFaces} clear faces</span>
-            &rarr; $${s.value}
+            &rarr; <strong>${s.gradeInfo.grade}</strong> &rarr; $${s.value}
         </div>`;
     });
 
@@ -563,40 +817,88 @@ function showFinalScore() {
     else if (avg >= 60) { grade='D';  msg='Needs work — study defect isolation strategies.';    color='#e74c3c'; }
     else                { grade='F';  msg='Keep practicing — focus on clear face tradeoffs!';   color='#c0392b'; }
 
+    const totalYours   = logScores.reduce((s, l) => s + l.totalValue, 0);
+    const totalOptimal = logScores.reduce((s, l) => s + l.optValue,   0);
+    const totalLeft    = totalOptimal - totalYours;
+
     const rows = logScores.map(l => `
         <tr>
             <td style="padding:8px 16px;">Log ${l.logNum}</td>
-            <td>$${l.totalValue}</td>
-            <td>$${l.optValue}</td>
-            <td style="color:${l.pct>=90?'#27ae60':l.pct>=70?'#e67e22':'#c0392b'}">
+            <td style="padding:8px 12px;">$${l.totalValue}</td>
+            <td style="padding:8px 12px;">$${l.optValue}</td>
+            <td style="padding:8px 12px; color:${l.pct>=90?'#27ae60':l.pct>=70?'#e67e22':'#c0392b'}">
                 <strong>${l.pct}%</strong>
+            </td>
+            <td style="padding:8px 12px; color:${l.leftOnTable===0?'#27ae60':'#c0392b'}; font-weight:bold;">
+                ${l.leftOnTable > 0 ? '−$' + l.leftOnTable : '&#10003;'}
             </td>
         </tr>`).join('');
 
-    document.getElementById('finalScore').innerHTML = `
-        <div style="background:#fff; border:3px solid ${color}; border-radius:12px;
-                    padding:25px; margin:20px 0; text-align:center;">
-            <h2 style="font-size:28px;">Final Score:
-                <span style="color:${color}; font-size:48px;">${grade}</span>
-            </h2>
-            <p style="font-size:20px;">${avg}% of optimal value recovered</p>
-            <p style="font-size:16px; color:#555;">${msg}</p>
-            <table style="margin:15px auto; border-collapse:collapse; font-size:15px;">
-                <tr style="background:#eee;">
-                    <th style="padding:8px 16px;">Log</th>
-                    <th>Your $</th>
-                    <th>Optimal $</th>
-                    <th>Score</th>
-                </tr>
-                ${rows}
+    const reportHTML = `
+        <div style="text-align:center; padding:10px 0 30px;">
+            <h1 style="color:#002855; border-bottom:3px solid #EAAA00; padding-bottom:8px; margin-bottom:20px;">
+                &#128203; Bucking Trainer — Final Report
+            </h1>
+
+            <div style="background:#fff; border:3px solid ${color}; border-radius:12px;
+                        padding:25px; margin:0 auto 25px; max-width:700px;">
+                <h2 style="font-size:28px; margin:0 0 8px;">Final Score:
+                    <span style="color:${color}; font-size:52px; line-height:1.1;">${grade}</span>
+                </h2>
+                <p style="font-size:22px; margin:6px 0;">${avg}% of optimal value recovered</p>
+                <p style="font-size:16px; color:#555; margin:4px 0;">${msg}</p>
+            </div>
+
+            <table style="margin:0 auto 20px; border-collapse:collapse; font-size:15px; width:100%; max-width:700px;">
+                <thead>
+                    <tr style="background:#002855; color:#fff;">
+                        <th style="padding:10px 16px; text-align:left;">Log</th>
+                        <th style="padding:10px 12px;">Your $</th>
+                        <th style="padding:10px 12px;">Optimal $</th>
+                        <th style="padding:10px 12px;">Score</th>
+                        <th style="padding:10px 12px;">Left on Table</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows}
+                </tbody>
+                <tfoot>
+                    <tr style="background:#FFF8E1; font-weight:bold; border-top:3px solid #EAAA00;">
+                        <td style="padding:10px 16px; text-align:left;">Total</td>
+                        <td style="padding:10px 12px;">$${totalYours}</td>
+                        <td style="padding:10px 12px;">$${totalOptimal}</td>
+                        <td style="padding:10px 12px; color:${avg>=90?'#27ae60':avg>=70?'#e67e22':'#c0392b'}">${avg}%</td>
+                        <td style="padding:10px 12px; color:${totalLeft===0?'#27ae60':'#c0392b'}">
+                            ${totalLeft > 0 ? '−$' + totalLeft : '&#10003; Perfect'}
+                        </td>
+                    </tr>
+                </tfoot>
             </table>
+
+            <div style="background:#f5f8ff; border:2px solid #002855; border-radius:8px;
+                        padding:16px 24px; margin:0 auto 25px; max-width:700px; font-size:16px;">
+                <strong>Optimal total:</strong> $${totalOptimal} &nbsp;&nbsp;|&nbsp;&nbsp;
+                <strong>You recovered:</strong> $${totalYours} &nbsp;&nbsp;|&nbsp;&nbsp;
+                <strong>Left on table:</strong>
+                <span style="color:${totalLeft>0?'#c0392b':'#27ae60'}; font-weight:bold;">
+                    $${totalLeft}
+                </span>
+            </div>
+
             <button onclick="restartGame()"
-                style="margin-top:15px; padding:12px 30px; background:#27ae60;
-                       color:#fff; font-size:16px; border:none; border-radius:6px; cursor:pointer;">
-                🔄 Play Again
+                style="padding:14px 36px; background:#EAAA00; color:#002855;
+                       font-size:18px; font-weight:bold; border:none; border-radius:6px;
+                       cursor:pointer; letter-spacing:0.03em;">
+                &#128260; Play Again
             </button>
         </div>`;
-    document.getElementById('finalScore').style.display = 'block';
+
+    // Switch to the report page
+    document.querySelector('.container').style.display = 'none';
+    const report = document.getElementById('finalReport');
+    report.innerHTML = reportHTML;
+    report.style.display = 'block';
+    window.scrollTo(0, 0);
 }
 
 // ─── Play Again ────────────────────────────────────────────────────────────
@@ -604,6 +906,9 @@ function restartGame() {
     currentLogIndex = 0;
     logScores       = [];
     document.getElementById('gameScore').textContent = 'Running Score: 0%';
+    document.getElementById('finalReport').style.display = 'none';
+    document.querySelector('.container').style.display = 'block';
+    window.scrollTo(0, 0);
     loadLog(generateLog());
 }
 
@@ -615,6 +920,36 @@ document.getElementById('reset').addEventListener('click', () => {
 
 // ─── Trim Live Update ──────────────────────────────────────────────────────
 document.getElementById('trimInput').addEventListener('change', drawLog);
+
+// ─── Build Grading Reference Table ─────────────────────────────────────────
+(function buildGradingTable() {
+    const gradeColors = {
+        'Prime': '#1a6e37', 'Select+': '#2980b9', 'Select': '#2471a3',
+        'No. 1+': '#7d6608', 'No. 1': '#9a7d0a', 'No. 2+': '#6e2f1a',
+        'No. 2': '#922b21', 'No. 3': '#555555'
+    };
+    const diameters = [
+        { label: '17"+', d: 17 }, { label: '16"', d: 16 }, { label: '15"', d: 15 },
+        { label: '14"', d: 14 }, { label: '13"', d: 13 }, { label: '12"', d: 12 },
+        { label: '11"', d: 11 }
+    ];
+    const tbody = document.getElementById('gradingTableBody');
+    if (!tbody) return;
+    diameters.forEach((row, ri) => {
+        const tr = document.createElement('tr');
+        tr.style.background = ri % 2 === 0 ? '#f9f9f9' : '#fff';
+        tr.innerHTML = `<td style="padding:4px 10px; font-weight:bold;">${row.label}</td>`;
+        for (let faces = 4; faces >= 0; faces--) {
+            const { grade, pricePerBF } = getGradeAndPrice(row.d, faces);
+            const bg = gradeColors[grade] || '#555';
+            tr.innerHTML += `<td style="padding:4px 8px; text-align:center;">
+                <span style="background:${bg}; color:#fff; padding:2px 6px; border-radius:3px; font-size:12px; white-space:nowrap;">
+                    ${grade}<br><span style="font-size:10px; opacity:0.85;">$${pricePerBF.toFixed(2)}/bf</span>
+                </span></td>`;
+        }
+        tbody.appendChild(tr);
+    });
+})();
 
 // ─── Start Game ────────────────────────────────────────────────────────────
 loadLog(generateLog());
