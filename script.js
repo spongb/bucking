@@ -7,6 +7,7 @@ let dragIdx = -1;
 let totalLength, buttDia, topDia;
 let currentDefects = [];
 let currentSpecies = '';
+let logRotation = 0; // 0–3: which face index is currently on top
 
 // ─── Random Log Generator ──────────────────────────────────────────────────
 function generateLog() {
@@ -103,6 +104,7 @@ function loadLog(logObj) {
     topDia          = logObj.top;
     currentSpecies  = logObj.species || 'Red Oak';
     cuts            = [];
+    logRotation     = 0;
     currentDefects  = generateDefects(totalLength, currentSpecies);
 
     document.getElementById('logDesc').textContent =
@@ -119,6 +121,7 @@ function loadLog(logObj) {
     buildDefectLegend();
     resizeCanvases();
     drawLog();
+    updateRotationDisplay();
 }
 
 // ─── Defect Legend ─────────────────────────────────────────────────────────
@@ -141,6 +144,12 @@ function buildDefectLegend() {
     });
     html += '</div>';
     document.getElementById('defectLegend').innerHTML = html;
+}
+
+// ─── Rotation Display ──────────────────────────────────────────────────────
+function updateRotationDisplay() {
+    const el = document.getElementById('rotLabel');
+    if (el) el.textContent = `Face ${logRotation + 1} on Top`;
 }
 
 // ─── Canvas Setup ──────────────────────────────────────────────────────────
@@ -219,15 +228,17 @@ function drawFaceMap(context, can, defects, cutsList) {
     const scale      = can.width / totalLength;
     const tickH      = Math.round(can.height * 20 / 88);
     const laneH      = Math.floor((can.height - tickH) / 4);
-    const faceLabels = ['Face 1', 'Face 2', 'Face 3', 'Face 4'];
+    // Lane 0 = top (face at logRotation), lane 3 = bottom
+    const dirLabels  = ['\u25b2 Top', '\u25b6 Right', '\u25bc Bot', '\u25c4 Left'];
     const laneColors = ['#EAF0FA', '#F5F8FF', '#EAF0FA', '#F5F8FF'];
     const laneFontSz = Math.max(8, Math.round(can.height / 8.8));
     const tickFontSz = Math.max(7, Math.round(can.height / 10));
 
     // Lane backgrounds + labels
-    for (let f = 0; f < 4; f++) {
-        const y = tickH + f * laneH;
-        context.fillStyle = laneColors[f];
+    for (let lane = 0; lane < 4; lane++) {
+        const absoluteFace = (lane + logRotation) % 4;
+        const y = tickH + lane * laneH;
+        context.fillStyle = laneColors[lane];
         context.fillRect(0, y, can.width, laneH);
 
         context.strokeStyle = '#C0C8D8';
@@ -239,7 +250,8 @@ function drawFaceMap(context, can, defects, cutsList) {
         context.fillStyle  = '#002855';
         context.font       = `bold ${laneFontSz}px Arial`;
         context.textAlign  = 'left';
-        context.fillText(faceLabels[f], 4, y + laneH / 2 + Math.round(laneFontSz * 0.35));
+        const laneLabel = `F${absoluteFace + 1} ${dirLabels[lane]}`;
+        context.fillText(laneLabel, 4, y + laneH / 2 + Math.round(laneFontSz * 0.35));
     }
     // Bottom border
     context.strokeStyle = '#C0C8D8';
@@ -253,7 +265,8 @@ function drawFaceMap(context, can, defects, cutsList) {
         const x1 = d.startFt * scale;
         const x2 = d.endFt   * scale;
         d.facesAffected.forEach(f => {
-            const y = tickH + f * laneH;
+            const lane = (f - logRotation + 4) % 4;
+            const y = tickH + lane * laneH;
             context.globalAlpha = 0.78;
             context.fillStyle   = d.color;
             context.fillRect(x1, y + 2, x2 - x1, laneH - 4);
@@ -321,39 +334,180 @@ function drawLogGraphic(context, can, cutsList) {
         points.push({ x: ft * scale, radiusPx });
     }
 
-    // Bold outline
-    context.strokeStyle = '#8B4513';
-    context.lineWidth   = Math.max(3, 8 * Hs);
+    // Per-face defect colors (used across drawing steps)
+    const faceDefColors = [null, null, null, null];
+    currentDefects.forEach(d => { d.facesAffected.forEach(f => { faceDefColors[f] = d.color; }); });
+
+    // ── 3D face bands: 4 shaded zones that shift with rotation ──────────────
+    // Each band spans 1/4 of the cylinder's projected height.
+    // Boundaries at ±1/√2 ≈ ±0.707 of radius (where adjacent quadrants meet on a circle).
+    const SQ2 = Math.SQRT2;
+    const bandTopFrac = [-1.0,  -1/SQ2, 0,      1/SQ2];
+    const bandBotFrac = [-1/SQ2, 0,     1/SQ2,  1.0  ];
+    // Top face lit, bottom face in shadow
+    const bandShade   = ['#D0CCBA', '#AEAB9A', '#8E8B7E', '#6E6B62'];
+
+    for (let vf = 0; vf < 4; vf++) {
+        const absF = (vf + logRotation) % 4;
+        const t = bandTopFrac[vf], b = bandBotFrac[vf];
+
+        // Base shade for this visual face
+        context.beginPath();
+        for (let i = 0; i < points.length; i++) {
+            const p = points[i];
+            if (i === 0) context.moveTo(p.x, yCenter + t * p.radiusPx);
+            else         context.lineTo(p.x, yCenter + t * p.radiusPx);
+        }
+        for (let i = points.length - 1; i >= 0; i--) {
+            context.lineTo(points[i].x, yCenter + b * points[i].radiusPx);
+        }
+        context.closePath();
+        context.fillStyle = bandShade[vf];
+        context.fill();
+
+        // Subtle defect-color tint over this band if that face has a defect
+        if (faceDefColors[absF]) {
+            context.beginPath();
+            for (let i = 0; i < points.length; i++) {
+                const p = points[i];
+                if (i === 0) context.moveTo(p.x, yCenter + t * p.radiusPx);
+                else         context.lineTo(p.x, yCenter + t * p.radiusPx);
+            }
+            for (let i = points.length - 1; i >= 0; i--) {
+                context.lineTo(points[i].x, yCenter + b * points[i].radiusPx);
+            }
+            context.closePath();
+            context.globalAlpha = 0.15;
+            context.fillStyle   = faceDefColors[absF];
+            context.fill();
+            context.globalAlpha = 1.0;
+        }
+    }
+
+    // Subtle separator lines between face bands
+    context.setLineDash([]);
+    for (let vf = 0; vf < 3; vf++) {
+        context.beginPath();
+        for (let i = 0; i < points.length; i++) {
+            const p = points[i];
+            if (i === 0) context.moveTo(p.x, yCenter + bandBotFrac[vf] * p.radiusPx);
+            else         context.lineTo(p.x, yCenter + bandBotFrac[vf] * p.radiusPx);
+        }
+        context.strokeStyle = 'rgba(0,0,0,0.22)';
+        context.lineWidth   = Math.max(0.5, 1 * Hs);
+        context.stroke();
+    }
+
+    // Specular highlight along the top edge
+    context.beginPath();
+    for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        if (i === 0) context.moveTo(p.x, yCenter - p.radiusPx);
+        else         context.lineTo(p.x, yCenter - p.radiusPx);
+    }
+    for (let i = points.length - 1; i >= 0; i--) {
+        context.lineTo(points[i].x, yCenter - points[i].radiusPx + Math.max(3, 5 * Hs));
+    }
+    context.closePath();
+    const hlGrad = context.createLinearGradient(0, yCenter - points[0].radiusPx, 0, yCenter);
+    hlGrad.addColorStop(0,   'rgba(255,255,255,0.58)');
+    hlGrad.addColorStop(0.6, 'rgba(255,255,255,0.12)');
+    hlGrad.addColorStop(1,   'rgba(255,255,255,0)');
+    context.fillStyle = hlGrad;
+    context.fill();
+
+    // Log outline drawn on top of fill so edges are crisp
+    context.strokeStyle = '#5C3317';
+    context.lineWidth   = Math.max(2.5, 5 * Hs);
     context.lineCap     = 'round';
     context.lineJoin    = 'round';
-
     context.beginPath();
-    points.forEach((p, i) => {
+    for (let i = 0; i < points.length; i++) {
+        const p = points[i];
         if (i === 0) context.moveTo(p.x, yCenter - p.radiusPx);
         else         context.lineTo(p.x, yCenter - p.radiusPx);
-    });
+    }
     context.stroke();
-
     context.beginPath();
-    points.slice().reverse().forEach((p, i) => {
+    for (let i = 0; i < points.length; i++) {
+        const p = points[i];
         if (i === 0) context.moveTo(p.x, yCenter + p.radiusPx);
         else         context.lineTo(p.x, yCenter + p.radiusPx);
-    });
+    }
     context.stroke();
 
-    // Gray gradient fill
-    const grad = context.createLinearGradient(0, 80 * Hs, can.width, 120 * Hs);
-    grad.addColorStop(0, '#D8D8D8');
-    grad.addColorStop(1, '#B0B0B0');
-    context.fillStyle = grad;
+    // ── Butt end cap with end-grain rings ─────────────────────────────────
+    const buttRpx = points[0].radiusPx;
+    const capW    = Math.max(6, 12 * Hs);  // depth of the end cap
+    context.save();
     context.beginPath();
-    points.forEach((p, i) => {
-        if (i === 0) context.moveTo(p.x, yCenter - p.radiusPx);
-        else         context.lineTo(p.x, yCenter - p.radiusPx);
-    });
-    points.slice().reverse().forEach(p => context.lineTo(p.x, yCenter + p.radiusPx));
-    context.closePath();
+    context.ellipse(0, yCenter, capW, buttRpx, 0, 0, Math.PI * 2);
+    context.clip();
+    // Concentric rings (light outside → dark heartwood center)
+    for (let ri = 8; ri >= 1; ri--) {
+        const fr = ri / 8;
+        const r  = Math.round(100 + fr * 60), g = Math.round(70 + fr * 40), b = Math.round(30 + fr * 20);
+        context.beginPath();
+        context.ellipse(0, yCenter, capW * fr, buttRpx * fr, 0, 0, Math.PI * 2);
+        context.fillStyle = `rgb(${r},${g},${b})`;
+        context.fill();
+        context.strokeStyle = 'rgba(0,0,0,0.12)';
+        context.lineWidth   = Math.max(0.5, 1 * Hs);
+        context.stroke();
+    }
+    // Heartwood dot
+    context.beginPath();
+    context.ellipse(0, yCenter, capW * 0.18, buttRpx * 0.18, 0, 0, Math.PI * 2);
+    context.fillStyle = '#4a2008';
     context.fill();
+    context.restore();
+    // Cap border
+    context.beginPath();
+    context.ellipse(0, yCenter, capW, buttRpx, 0, 0, Math.PI * 2);
+    context.strokeStyle = '#5C3317';
+    context.lineWidth   = Math.max(1.5, 3 * Hs);
+    context.stroke();
+
+    // ── End-view indicator (bottom-right corner) ─────────────────────────────
+    const evR = Math.min(22 * Hs, can.height * 0.13);
+    const evX = can.width - evR - 8 * Hs;
+    const evY = can.height - evR - 8 * Hs;
+    for (let f = 0; f < 4; f++) {
+        const vf = (f - logRotation + 4) % 4;
+        const sa = vf * Math.PI / 2 - 3 * Math.PI / 4;
+        const ea = vf * Math.PI / 2 - Math.PI / 4;
+        context.beginPath();
+        context.moveTo(evX, evY);
+        context.arc(evX, evY, evR, sa, ea);
+        context.closePath();
+        context.globalAlpha = faceDefColors[f] ? 0.82 : 0.55;
+        context.fillStyle   = faceDefColors[f] || '#bbb';
+        context.fill();
+        context.globalAlpha = 1.0;
+        context.strokeStyle = '#555';
+        context.lineWidth   = 1;
+        context.stroke();
+        const la = vf * Math.PI / 2 - Math.PI / 2;
+        context.font         = `bold ${Math.max(7, Math.round(9 * Hs))}px Arial`;
+        context.textAlign    = 'center';
+        context.textBaseline = 'middle';
+        context.fillStyle    = faceDefColors[f] ? '#fff' : '#444';
+        context.fillText((f + 1).toString(), evX + Math.cos(la) * evR * 0.6, evY + Math.sin(la) * evR * 0.6);
+    }
+    context.textBaseline = 'alphabetic';
+    context.beginPath();
+    context.arc(evX, evY, evR, 0, Math.PI * 2);
+    context.strokeStyle = '#333';
+    context.lineWidth   = Math.max(1.5, 2 * Hs);
+    context.stroke();
+    context.font        = `bold ${Math.max(8, Math.round(10 * Hs))}px Arial`;
+    context.textAlign   = 'center';
+    context.fillStyle   = '#002855';
+    context.strokeStyle = '#fff';
+    context.lineWidth   = Math.max(1, 2 * Hs);
+    const arrowY = evY - evR - 3 * Hs;
+    context.strokeText('\u25b2', evX, arrowY);
+    context.fillText('\u25b2', evX, arrowY);
 
     // Draw defects
     drawDefects(context, currentDefects, scale, yCenter, pxPerIn);
@@ -372,7 +526,7 @@ function drawLogGraphic(context, can, cutsList) {
             context.fillStyle  = '#000';
             context.font       = `${Math.max(8, Math.round(12 * Hs))}px Arial`;
             context.textAlign  = 'center';
-            context.fillText(i.toString(), x, 60 * Hs);
+            context.fillText(i + "'", x, 60 * Hs);
         }
     }
 
@@ -426,6 +580,11 @@ function drawLogGraphic(context, can, cutsList) {
 }
 
 // ─── Draw Defects ──────────────────────────────────────────────────────────
+// Visual face 0=top, 1=front-right, 2=back-left, 3=bottom.
+// Y position center (as fraction of r from log center) per visual face:
+const FACE_Y_FRAC = [-0.62, -0.22, 0.22, 0.62];
+const FACE_BAND_H = 0.36; // half-band height as fraction of r
+
 function drawDefects(context, defects, scale, yCenter, pxPerIn) {
     const Hs = pxPerIn / 1.5;
     defects.forEach(d => {
@@ -436,36 +595,41 @@ function drawDefects(context, defects, scale, yCenter, pxPerIn) {
         const dia   = buttDia - (buttDia - topDia) * frac;
         const r     = (dia / 2) * pxPerIn;
 
-        context.globalAlpha = 0.75;
+        context.globalAlpha = 0.78;
 
-        if (d.type === 'knot_cluster') {
-            context.fillStyle = d.color;
-            const numKnots = Math.max(2, Math.round((x2 - x1) / 15));
-            for (let k = 0; k < numKnots; k++) {
-                const kx = x1 + ((k + 0.5) / numKnots) * (x2 - x1);
-                const ky = yCenter - r + 8 * Hs + (k % 2) * 8 * Hs;
+        d.facesAffected.forEach(face => {
+            const vf = (face - logRotation + 4) % 4; // visual position for this face
+            const fy = yCenter + FACE_Y_FRAC[vf] * r;
+            const fh = FACE_BAND_H * r;
+
+            if (d.type === 'knot_cluster') {
+                context.fillStyle = d.color;
+                const numKnots = Math.max(2, Math.round((x2 - x1) / 18));
+                for (let k = 0; k < numKnots; k++) {
+                    const kx = x1 + ((k + 0.5) / numKnots) * (x2 - x1);
+                    context.beginPath();
+                    context.arc(kx, fy, Math.max(3, 5 * Hs), 0, Math.PI * 2);
+                    context.fill();
+                }
+            } else if (d.type === 'rot') {
+                context.fillStyle = d.color;
+                context.fillRect(x1, fy - fh, x2 - x1, fh * 2);
+            } else if (d.type === 'seam') {
+                context.strokeStyle = d.color;
+                context.lineWidth   = Math.max(2, 4 * Hs);
                 context.beginPath();
-                context.arc(kx, ky, 6 * Hs, 0, Math.PI * 2);
-                context.fill();
+                context.moveTo(x1, fy);
+                context.lineTo(x2, fy);
+                context.stroke();
+            } else if (d.type === 'sweep') {
+                context.fillStyle = d.color;
+                context.fillRect(x1, fy - fh * 0.4, x2 - x1, fh * 1.2);
             }
-        } else if (d.type === 'rot') {
-            context.fillStyle = d.color;
-            context.fillRect(x1, yCenter - r, x2 - x1, r * 2);
-        } else if (d.type === 'seam') {
-            context.strokeStyle = d.color;
-            context.lineWidth   = Math.max(2, 4 * Hs);
-            context.beginPath();
-            context.moveTo(x1, yCenter - r + 5 * Hs);
-            context.lineTo(x2, yCenter - r + 5 * Hs);
-            context.stroke();
-        } else if (d.type === 'sweep') {
-            context.fillStyle = d.color;
-            context.fillRect(x1, yCenter + r - 10 * Hs, x2 - x1, 10 * Hs);
-        }
+        });
 
         context.globalAlpha = 1.0;
 
-        // Defect label above stem
+        // Defect label above the log
         const labelFontSz = Math.max(8, Math.round(11 * Hs));
         context.font        = `bold ${labelFontSz}px Arial`;
         context.textAlign   = 'center';
@@ -550,6 +714,33 @@ window.addEventListener('touchend', () => {
         dragIdx = -1;
         drawLog();
     }
+});
+
+// ─── Log Rotation (Arrow Keys + Buttons) ───────────────────────────────────
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        logRotation = (logRotation - 1 + 4) % 4;
+        drawLog();
+        updateRotationDisplay();
+    } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        logRotation = (logRotation + 1) % 4;
+        drawLog();
+        updateRotationDisplay();
+    }
+});
+
+document.getElementById('rollUp').addEventListener('click', () => {
+    logRotation = (logRotation - 1 + 4) % 4;
+    drawLog();
+    updateRotationDisplay();
+});
+
+document.getElementById('rollDown').addEventListener('click', () => {
+    logRotation = (logRotation + 1) % 4;
+    drawLog();
+    updateRotationDisplay();
 });
 
 // ─── Doyle Volume ──────────────────────────────────────────────────────────
@@ -1028,6 +1219,12 @@ function restartGame() {
 document.getElementById('reset').addEventListener('click', () => {
     cuts = [];
     drawLog();
+    document.getElementById('scoreLog').style.display  = 'inline-block';
+    document.getElementById('nextLog').style.display   = 'none';
+    document.getElementById('segments').innerHTML      = '';
+    document.getElementById('finalScore').style.display = 'none';
+    const optContainer = document.getElementById('optContainer');
+    if (optContainer) optContainer.style.display = 'none';
 });
 
 // ─── Trim Live Update ──────────────────────────────────────────────────────

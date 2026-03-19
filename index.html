@@ -47,6 +47,12 @@
         </details>
         
         <canvas id="logCanvas" width="800" height="200"></canvas>
+        <div id="rotationControl" style="display:flex; align-items:center; gap:8px; justify-content:center; margin:5px 0 2px;">
+            <span style="font-size:12px; color:#666;">&#8593;&#8595; arrow keys or:</span>
+            <button id="rollUp"   style="padding:3px 14px; font-size:13px;" title="Roll log up (&#8593;)">&#9650; Roll Up</button>
+            <span id="rotLabel"   style="font-size:13px; color:#002855; font-weight:bold; min-width:110px; text-align:center;">Face 1 on Top</span>
+            <button id="rollDown" style="padding:3px 14px; font-size:13px;" title="Roll log down (&#8595;)">&#9660; Roll Down</button>
+        </div>
         <div style="font-size:11px; font-weight:bold; color:#002855; text-align:left;
                     margin:2px 0 0; letter-spacing:0.03em;">&#9632; Face Defect Map</div>
         <canvas id="faceCanvas" width="800" height="88"></canvas>
