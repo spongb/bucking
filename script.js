@@ -1109,8 +1109,30 @@ document.getElementById('nextLog').addEventListener('click', () => {
     loadLog(generateLog());
 });
 
+// ─── Attempt Logging (server-side CSV) ────────────────────────────────────
+// Participant ID comes from URL ?user=P001 — invisible to the player.
+// Falls back to a random session token if the param is absent.
+const _userId = new URLSearchParams(window.location.search).get('user') ||
+    'anon-' + Math.random().toString(36).slice(2, 8);
+
+function recordAttempt(scores) {
+    const overallPct = Math.round(scores.reduce((s, l) => s + l.pct, 0) / scores.length);
+    const payload = {
+        user:      _userId,
+        timestamp: new Date().toISOString(),
+        logs:      scores.map(l => l.pct),
+        overall:   overallPct
+    };
+    fetch('/log', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload)
+    }).catch(() => { /* silently ignore if server unavailable */ });
+}
+
 // ─── Final Scorecard ───────────────────────────────────────────────────────
 function showFinalScore() {
+    recordAttempt(logScores);
     const avg = Math.round(logScores.reduce((s, l) => s + l.pct, 0) / logScores.length);
     let grade, msg, color;
     if      (avg >= 95) { grade='A+'; msg='Master Bucker! Exceptional value recovery.';        color='#27ae60'; }
