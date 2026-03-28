@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -hoP ^s*K[A-Z]+ c:UsersbdspongOneDrive - West Virginia University2026Gitbucking-1hw-stemsDEFECTS/*.def c:UsersbdspongOneDrive - West Virginia University2026Gitbucking-1hw-stemsDEFECTS/*.DEF)",
+      "Bash(done)",
+      "Bash(node -e \":*)"
+    ]
+  }
+}

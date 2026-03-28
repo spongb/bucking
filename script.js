@@ -6,75 +6,61 @@ let cuts = [];
 let dragIdx = -1;
 let totalLength, buttDia, topDia;
 let currentDefects = [];
-let currentSpecies = '';
 let logRotation = 0; // 0–3: which face index is currently on top
 
-// ─── Random Log Generator ──────────────────────────────────────────────────
+// ─── Grade Prices (per board foot) ────────────────────────────────────────
+// Loaded from prices.json at startup; falls back to these defaults if unavailable.
+let PRICES = {
+    'Veneer': 4.50, 'Prime': 2.50, 'Select+': 2.10, 'Select': 1.80,
+    'No. 1+': 1.50, 'No. 1': 1.20, 'No. 2+': 1.00, 'No. 2': 0.80, 'No. 3': 0.30
+};
+
+// ─── Real Tree Dataset ─────────────────────────────────────────────────────
+// Loaded from hw-stems/trees.json at startup. Falls back to random generation
+// if the file is unavailable (e.g. opening index.html directly without the server).
+let realTrees = [];
+let usedTreeIndices = new Set(); // avoid repeating trees within a session
+
+function pickLog() {
+    if (realTrees.length === 0) return generateLog(); // fallback
+    // Avoid repeats until all trees have been used
+    if (usedTreeIndices.size >= realTrees.length) usedTreeIndices.clear();
+    let idx;
+    do { idx = Math.floor(Math.random() * realTrees.length); }
+    while (usedTreeIndices.has(idx));
+    usedTreeIndices.add(idx);
+    return realTrees[idx];
+}
+
+// ─── Random Log Generator (fallback when trees.json unavailable) ───────────
 function generateLog() {
-    const isPoplar  = Math.random() < 0.5;
-    const isPeeler  = Math.random() < (isPoplar ? 0.25 : 0.15);
-    let lengths, buttDias, tapers, species;
-
-    if (isPoplar) {
-        species = 'Yellow Poplar';
-        if (isPeeler) {
-            lengths  = [40, 44, 48, 52, 56];
-            buttDias = [22, 24, 26, 28, 30, 32];
-            tapers   = [2, 3, 3, 4];
-        } else {
-            lengths  = [32, 36, 40, 44, 48];
-            buttDias = [14, 16, 18, 20, 22, 24];
-            tapers   = [3, 4, 4, 5, 5, 6];
-        }
-    } else {
-        species = 'Red Oak';
-        if (isPeeler) {
-            lengths  = [32, 36, 40, 44, 48];
-            buttDias = [20, 22, 24, 26, 28];
-            tapers   = [4, 5, 6, 7, 8];
-        } else {
-            lengths  = [24, 28, 32, 36, 40, 44, 48];
-            buttDias = [14, 16, 18, 20, 22, 24, 26];
-            tapers   = [5, 6, 7, 8, 9, 10];
-        }
-    }
-
+    const lengths  = [24, 28, 32, 36, 40, 44, 48];
+    const buttDias = [14, 16, 18, 20, 22, 24, 26];
+    const tapers   = [3, 4, 5, 6, 7, 8];
     const length = lengths [Math.floor(Math.random() * lengths.length)];
     const butt   = buttDias[Math.floor(Math.random() * buttDias.length)];
     const taper  = tapers  [Math.floor(Math.random() * tapers.length)];
     const top    = Math.max(6, butt - taper);
-    return { length, butt, top, species };
+    return { length, butt, top };
 }
 
-// ─── Random Defect Generator ───────────────────────────────────────────────
-// Defect pools weighted by species:
-//   Yellow Poplar — prone to sweep; rot uncommon
-//   Red Oak       — prone to seams/knots and rot; sweep uncommon
-const DEFECT_POOLS = {
-    'Yellow Poplar': [
-        { type: 'sweep',        label: 'Sweep', color: '#DAA520', facePenalty: 1, minLen: 4, maxLen: 10, weight: 4 },
-        { type: 'knot_cluster', label: 'Knots', color: '#8B4513', facePenalty: 1, minLen: 2, maxLen: 5,  weight: 2 },
-        { type: 'seam',         label: 'Seam',  color: '#444444', facePenalty: 1, minLen: 3, maxLen: 8,  weight: 2 },
-        { type: 'rot',          label: 'Rot',   color: '#8B0000', facePenalty: 1, minLen: 2, maxLen: 4,  weight: 1 },
-    ],
-    'Red Oak': [
-        { type: 'knot_cluster', label: 'Knots', color: '#8B4513', facePenalty: 1, minLen: 2, maxLen: 5,  weight: 3 },
-        { type: 'seam',         label: 'Seam',  color: '#444444', facePenalty: 1, minLen: 3, maxLen: 8,  weight: 3 },
-        { type: 'rot',          label: 'Rot',   color: '#8B0000', facePenalty: 1, minLen: 2, maxLen: 4,  weight: 2 },
-        { type: 'sweep',        label: 'Sweep', color: '#DAA520', facePenalty: 1, minLen: 4, maxLen: 10, weight: 1 },
-    ]
-};
+// ─── Random Defect Generator (fallback) ───────────────────────────────────
+const DEFECT_POOL = [
+    { type: 'knot_cluster', label: 'Knots', color: '#8B4513', minLen: 2, maxLen: 5,  weight: 3 },
+    { type: 'seam',         label: 'Seam',  color: '#444444', minLen: 3, maxLen: 8,  weight: 3 },
+    { type: 'sweep',        label: 'Sweep', color: '#DAA520', minLen: 4, maxLen: 10, weight: 2 },
+    { type: 'rot',          label: 'Rot',   color: '#8B0000', minLen: 2, maxLen: 4,  weight: 1 },
+];
 
-function generateDefects(logLength, species) {
+function generateDefects(logLength) {
     const defects    = [];
     const numDefects = Math.floor(Math.random() * 4) + 1;
-    const pool       = DEFECT_POOLS[species] || DEFECT_POOLS['Red Oak'];
-    const totalW     = pool.reduce((s, d) => s + d.weight, 0);
+    const totalW     = DEFECT_POOL.reduce((s, d) => s + d.weight, 0);
 
     function pickType() {
         let r = Math.random() * totalW;
-        for (const d of pool) { r -= d.weight; if (r <= 0) return d; }
-        return pool[pool.length - 1];
+        for (const d of DEFECT_POOL) { r -= d.weight; if (r <= 0) return d; }
+        return DEFECT_POOL[DEFECT_POOL.length - 1];
     }
 
     for (let i = 0; i < numDefects; i++) {
@@ -90,7 +76,6 @@ function generateDefects(logLength, species) {
         }
         defects.push({
             type: t.type, label: t.label, color: t.color,
-            facePenalty: t.facePenalty,
             startFt, endFt: startFt + len, facesAffected
         });
     }
@@ -99,16 +84,18 @@ function generateDefects(logLength, species) {
 
 // ─── Load a Log ────────────────────────────────────────────────────────────
 function loadLog(logObj) {
-    totalLength     = logObj.length;
-    buttDia         = logObj.butt;
-    topDia          = logObj.top;
-    currentSpecies  = logObj.species || 'Red Oak';
-    cuts            = [];
-    logRotation     = 0;
-    currentDefects  = generateDefects(totalLength, currentSpecies);
+    totalLength    = logObj.length;
+    buttDia        = logObj.butt;
+    topDia         = logObj.top;
+    cuts           = [];
+    logRotation    = 0;
+    currentDefects = logObj.defects || generateDefects(totalLength);
 
+    const displaySpecies = logObj.species
+        ? logObj.species.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
+        : 'Hardwood';
     document.getElementById('logDesc').textContent =
-        `${currentSpecies} — ${totalLength}ft  |  Butt: ${buttDia}"  |  Top: ${topDia}"`;
+        `${displaySpecies} — ${totalLength}ft  |  Butt: ${buttDia}"  |  Top: ${topDia}"`;
     document.getElementById('logCounter').textContent =
         `Log ${currentLogIndex + 1} of ${TOTAL_LOGS}`;
     document.getElementById('nextLog').style.display   = 'none';
@@ -126,23 +113,30 @@ function loadLog(logObj) {
 
 // ─── Defect Legend ─────────────────────────────────────────────────────────
 function buildDefectLegend() {
-    let html = '<div style="margin:8px 0; font-size:14px;"><strong>Defects on this stem:</strong> ';
+    const count = currentDefects.length;
+    let inner = '';
     currentDefects.forEach(d => {
         let penaltyNote;
         if (d.type === 'sweep') {
-            penaltyNote = `−${(d.facesAffected.length * 0.5).toFixed(1)}" dia.`;
+            const deduction = (d.widthIn > 0) ? d.widthIn : 1;
+            penaltyNote = `−${deduction}" dia.`;
+        } else if (d.type === 'end_check') {
+            penaltyNote = `−${(d.endFt - d.startFt).toFixed(1)}ft length`;
         } else {
-            const faceDeduct = d.facesAffected.length * d.facePenalty;
-            penaltyNote = `−${faceDeduct} face${faceDeduct !== 1 ? 's' : ''}${d.facePenalty > 1 ? ' (2× rot)' : ''}`;
+            const n = d.facesAffected.length;
+            penaltyNote = `−${n} face${n !== 1 ? 's' : ''}`;
         }
-        html += `<span style="background:${d.color}; color:#fff; padding:2px 8px;
-                 border-radius:4px; margin:2px; display:inline-flex; align-items:center; gap:4px;">
-                 ${d.label} ${d.startFt.toFixed(1)}–${d.endFt.toFixed(1)}ft
-                 (${penaltyNote})
-                 ${makeFaceIndicator(d.facesAffected, d.color)}
-                 </span>`;
+        inner += `<span style="background:${d.color}; color:#fff; padding:2px 8px;
+                  border-radius:4px; margin:2px; display:inline-flex; align-items:center; gap:4px;">
+                  ${d.label} ${d.startFt.toFixed(1)}–${d.endFt.toFixed(1)}ft
+                  (${penaltyNote})
+                  ${makeFaceIndicator(d.facesAffected, d.color)}
+                  </span>`;
     });
-    html += '</div>';
+    const html = `<details style="margin:6px 0 12px; font-size:13px; text-align:left;">
+        <summary style="cursor:pointer; font-weight:bold; color:#002855;">&#9432; Defects on this stem (${count})</summary>
+        <div style="margin-top:6px;">${inner}</div>
+    </details>`;
     document.getElementById('defectLegend').innerHTML = html;
 }
 
@@ -743,6 +737,22 @@ document.getElementById('rollDown').addEventListener('click', () => {
     updateRotationDisplay();
 });
 
+// ─── Sweep Diameter Deduction ──────────────────────────────────────────────
+// HW Buck treated sweep/crook (SE type) as a diameter reduction rather than a face
+// penalty — it reduces log yield through taper, not by obstructing clear faces.
+// We use the actual measured sweep magnitude (widthIn, stored in inches from the
+// .def file) as the scaling diameter deduction. Falls back to 1" if widthIn is
+// absent (e.g. randomly generated logs that don't carry the real measurement).
+function applySweepDeduction(baseDia, startFt, endFt, defects) {
+    let dia = baseDia;
+    defects.forEach(d => {
+        if (d.type === 'sweep' && d.startFt < endFt && d.endFt > startFt) {
+            dia -= (d.widthIn > 0) ? d.widthIn : 1;
+        }
+    });
+    return Math.max(6, dia);
+}
+
 // ─── Doyle Volume ──────────────────────────────────────────────────────────
 function doyleVolume(dia, len) {
     const D = Math.max(0, dia - 4);
@@ -750,19 +760,39 @@ function doyleVolume(dia, len) {
 }
 
 // ─── Clear Faces Calculator ────────────────────────────────────────────────
+// Tracks which specific face indices (0–3) are blocked by any overlapping defect,
+// using a Set so that two defects on the same face only count once.
+// This corrects the prior arithmetic approach that would subtract 2 when two
+// defects happened to share a face, under-grading such logs.
+// facePenalty is not applied here — AHMI grades by distinct face presence, not
+// severity weighting (the 2× rot concept was HW Buck-specific, not AHMI).
 function getClearFaces(startFt, endFt, defects) {
-    let faces = 4;
+    const blocked = new Set();
     defects.forEach(d => {
-        if (d.type === 'sweep') return; // sweep is handled as a diameter deduction, not a face penalty
-        const overlaps = d.startFt < endFt && d.endFt > startFt;
-        if (overlaps) faces -= d.facesAffected.length * d.facePenalty;
+        if (d.type === 'sweep')      return; // sweep → diameter deduction
+        if (d.type === 'end_check')  return; // bole end → length deduction
+        if (d.startFt < endFt && d.endFt > startFt) {
+            d.facesAffected.forEach(f => blocked.add(f));
+        }
     });
-    return Math.max(0, faces);
+    return 4 - blocked.size;
 }
 
 // ─── AHMI Grading Matrix (from PDF Page 14) ──────────────────────────────
-function getGradeAndPrice(dia, clearFaces) {
+// Veneer added as a premium tier above the sawlog matrix:
+//   Requires all 4 clear faces + minimum scaling diameter (species-dependent).
+//   Red Oak: 14" minimum;  Yellow Poplar and others: 12" minimum.
+function getGradeAndPrice(dia, clearFaces, nomLen = Infinity) {
     const d = Math.floor(dia);
+
+    // Veneer check — intercept before the sawlog matrix.
+    // Requires: all 4 clear faces, minimum 12" scaling diameter, minimum 12-foot log.
+    // The 12" diameter threshold is derived from the 50.0 cm (~19.7") float found
+    // in the HW Buck binary config (hw-stems/Veneer/default).
+    if (clearFaces >= 4 && d >= 12 && nomLen >= 12) {
+        return { grade: 'Veneer', pricePerBF: PRICES['Veneer'] ?? 4.50 };
+    }
+
     const faceIdx = Math.min(4, 4 - clearFaces); // 4 faces -> index 0, 3 faces -> index 1, etc.
 
     let grade = 'No. 3';
@@ -775,12 +805,7 @@ function getGradeAndPrice(dia, clearFaces) {
     else if (d >= 11) grade = ['No. 2',    'No. 3',   'No. 3',   'No. 3',  'No. 3'][faceIdx];
     else              grade = 'No. 3';
 
-    const prices = {
-        'Prime': 2.50, 'Select+': 2.10, 'Select': 1.80, 'No. 1+': 1.50,
-        'No. 1': 1.20, 'No. 2+': 1.00,  'No. 2': 0.80,  'No. 3': 0.30
-    };
-
-    return { grade, pricePerBF: prices[grade] || 0.30 };
+    return { grade, pricePerBF: PRICES[grade] ?? 0.30 };
 }
 
 // ─── Score Segments ────────────────────────────────────────────────────────
@@ -794,7 +819,14 @@ function scoreSegments(cutList, defects) {
 
     allPoints.forEach(endFt => {
         const physicalLen = endFt - prevFt;
-        const maxNomLen   = physicalLen - trim;
+
+        // Bole-end checks consume usable log length — deduct their span from maxNomLen
+        let ecDeduction = 0;
+        defects.forEach(d => {
+            if (d.type === 'end_check' && d.startFt < endFt && d.endFt > prevFt)
+                ecDeduction += Math.min(d.endFt, endFt) - Math.max(d.startFt, prevFt);
+        });
+        const maxNomLen = physicalLen - trim - ecDeduction;
         
         let nomLen = 0;
         for (const L of standardLengths) {
@@ -810,18 +842,11 @@ function scoreSegments(cutList, defects) {
             const frac       = scalingFt / totalLength;
             const scalingDia = buttDia - (buttDia - topDia) * frac;
 
-            // Sweep/crook: reduces effective scaling diameter (volume deduction)
-            let effectiveDia = scalingDia;
-            defects.filter(d => d.type === 'sweep').forEach(d => {
-                if (d.startFt < prevFt + nomLen && d.endFt > prevFt) {
-                    effectiveDia -= d.facesAffected.length * 0.5;
-                }
-            });
-            effectiveDia = Math.max(6, effectiveDia);
+            const effectiveDia = applySweepDeduction(scalingDia, prevFt, prevFt + nomLen, defects);
 
             const clearFaces = getClearFaces(prevFt, prevFt + nomLen, defects);
             const volumeBF   = doyleVolume(effectiveDia, nomLen);
-            const gradeInfo  = getGradeAndPrice(effectiveDia, clearFaces);
+            const gradeInfo  = getGradeAndPrice(effectiveDia, clearFaces, nomLen);
             const value      = Math.round(volumeBF * gradeInfo.pricePerBF);
             
             totalValue += value;
@@ -874,7 +899,14 @@ function computeOptimal() {
     for (let i = steps - 1; i >= 0; i--) {
         const startFt = i * step;
         for (const nomLen of allowedLengths) {
-            const cutFt   = startFt + nomLen + trim;
+            // Bole-end checks consume usable length; the physical span must grow
+            // by the check length so the nominal log still measures nomLen usable feet.
+            let ecDeduction = 0;
+            currentDefects.forEach(d => {
+                if (d.type === 'end_check' && d.startFt < startFt + nomLen && d.endFt > startFt)
+                    ecDeduction += Math.min(d.endFt, startFt + nomLen) - Math.max(d.startFt, startFt);
+            });
+            const cutFt   = startFt + nomLen + trim + ecDeduction;
             if (cutFt > totalLength + 0.01) continue;
             const endStep = Math.min(Math.round(cutFt / step), steps);
             
@@ -883,17 +915,11 @@ function computeOptimal() {
             const frac      = scalingFt / totalLength;
             let dia         = buttDia - (buttDia - topDia) * frac;
 
-            // Sweep/crook diameter deduction
-            currentDefects.filter(d => d.type === 'sweep').forEach(d => {
-                if (d.startFt < startFt + nomLen && d.endFt > startFt) {
-                    dia -= d.facesAffected.length * 0.5;
-                }
-            });
-            dia = Math.max(6, dia);
+            dia = applySweepDeduction(dia, startFt, startFt + nomLen, currentDefects);
 
             const faces     = getClearFaces(startFt, startFt + nomLen, currentDefects);
             const vol       = doyleVolume(dia, nomLen);
-            const grade     = getGradeAndPrice(dia, faces);
+            const grade     = getGradeAndPrice(dia, faces, nomLen);
             const val       = Math.round(vol * grade.pricePerBF) + (dp[endStep] || 0);
             
             if (val > dp[i]) { dp[i] = val; choice[i] = endStep; }
@@ -1058,7 +1084,7 @@ document.getElementById('scoreLog').addEventListener('click', () => {
 
     segs.forEach((s, i) => {
         if (s.nomLen > 0) {
-            const faceColor = s.clearFaces >= 3 ? '#27ae60' : s.clearFaces >= 2 ? '#e67e22' : '#c0392b';
+            const faceColor = s.gradeInfo.grade === 'Veneer' ? '#6c3483' : s.clearFaces >= 3 ? '#27ae60' : s.clearFaces >= 2 ? '#e67e22' : '#c0392b';
             html += `<div class="segment" style="border-left:4px solid #c0392b;">
                 Log ${i+1}: <strong>${s.nomLen}'</strong> (${s.physicalLen.toFixed(1)}' piece) @
                 ${s.scalingDia.toFixed(1)}" |
@@ -1076,7 +1102,7 @@ document.getElementById('scoreLog').addEventListener('click', () => {
                 <h3 style="color:#002855;">&#10003; Optimal Bucking — $${optValue}</h3>`;
 
     optSegs.forEach((s, i) => {
-        const faceColor = s.clearFaces >= 3 ? '#27ae60' : s.clearFaces >= 2 ? '#e67e22' : '#c0392b';
+        const faceColor = s.gradeInfo.grade === 'Veneer' ? '#6c3483' : s.clearFaces >= 3 ? '#27ae60' : s.clearFaces >= 2 ? '#e67e22' : '#c0392b';
         html += `<div class="segment" style="border-left:4px solid #EAAA00;">
             Log ${i+1}: <strong>${s.nomLen}'</strong> @
             ${s.scalingDia.toFixed(1)}" |
@@ -1106,19 +1132,19 @@ function updateRunningScore() {
 // ─── Next Log ──────────────────────────────────────────────────────────────
 document.getElementById('nextLog').addEventListener('click', () => {
     currentLogIndex++;
-    loadLog(generateLog());
+    loadLog(pickLog());
 });
 
 // ─── Attempt Logging (server-side CSV) ────────────────────────────────────
 // Participant ID comes from URL ?user=P001 — invisible to the player.
 // Falls back to a random session token if the param is absent.
-const _userId = new URLSearchParams(window.location.search).get('user') ||
+const userId = new URLSearchParams(window.location.search).get('user') ||
     'anon-' + Math.random().toString(36).slice(2, 8);
 
 function recordAttempt(scores) {
     const overallPct = Math.round(scores.reduce((s, l) => s + l.pct, 0) / scores.length);
     const payload = {
-        user:      _userId,
+        user:      userId,
         timestamp: new Date().toISOString(),
         logs:      scores.map(l => l.pct),
         overall:   overallPct
@@ -1230,11 +1256,12 @@ function showFinalScore() {
 function restartGame() {
     currentLogIndex = 0;
     logScores       = [];
+    usedTreeIndices.clear();
     document.getElementById('gameScore').textContent = 'Running Score: 0%';
     document.getElementById('finalReport').style.display = 'none';
     document.querySelector('.container').style.display = 'block';
     window.scrollTo(0, 0);
-    loadLog(generateLog());
+    loadLog(pickLog());
 }
 
 // ─── Reset Cuts ────────────────────────────────────────────────────────────
@@ -1255,6 +1282,7 @@ document.getElementById('trimInput').addEventListener('change', drawLog);
 // ─── Build Grading Reference Table ─────────────────────────────────────────
 (function buildGradingTable() {
     const gradeColors = {
+        'Veneer': '#6c3483',
         'Prime': '#1a6e37', 'Select+': '#2980b9', 'Select': '#2471a3',
         'No. 1+': '#7d6608', 'No. 1': '#9a7d0a', 'No. 2+': '#6e2f1a',
         'No. 2': '#922b21', 'No. 3': '#555555'
@@ -1283,4 +1311,12 @@ document.getElementById('trimInput').addEventListener('change', drawLog);
 })();
 
 // ─── Start Game ────────────────────────────────────────────────────────────
-loadLog(generateLog());
+// Load prices and tree data in parallel; start the game when both settle.
+Promise.allSettled([
+    fetch('prices.json').then(r => r.json()),
+    fetch('hw-stems/trees.json').then(r => r.json()),
+]).then(([priceResult, treeResult]) => {
+    if (priceResult.status === 'fulfilled') PRICES = priceResult.value;
+    if (treeResult.status  === 'fulfilled') realTrees = treeResult.value;
+    loadLog(pickLog());
+});

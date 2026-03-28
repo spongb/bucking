@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \":*)",
+      "Bash(node hw-stems/build-dataset.js)",
+      "Bash(curl -s http://localhost:3000/hw-stems/trees.json)",
+      "Bash(node -e \"const trees = require\\(''./hw-stems/trees.json''\\); const counts = {}; trees.forEach\\(t => { counts[t.rawSpecies] = \\(counts[t.rawSpecies] || 0\\) + 1; }\\); Object.entries\\(counts\\).sort\\(\\(a,b\\) => b[1]-a[1]\\).forEach\\(\\([s,n]\\) => console.log\\(n, s\\)\\);\" \"c:\\\\Users\\\\bdspong\\\\OneDrive - West Virginia University\\\\2026\\\\Git\\\\bucking-1\")"
+    ]
+  }
+}
