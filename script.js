@@ -11,7 +11,7 @@ let logRotation = 0; // 0–3: which face index is currently on top
 // ─── Grade Prices (per board foot) ────────────────────────────────────────
 // Loaded from prices.json at startup; falls back to these defaults if unavailable.
 let PRICES = {
-    'Veneer': 4.50, 'Prime': 2.50, 'Select+': 2.10, 'Select': 1.80,
+    'Prime': 2.50, 'Select+': 2.10, 'Select': 1.80,
     'No. 1+': 1.50, 'No. 1': 1.20, 'No. 2+': 1.00, 'No. 2': 0.80, 'No. 3': 0.30
 };
 
@@ -46,10 +46,10 @@ function generateLog() {
 
 // ─── Random Defect Generator (fallback) ───────────────────────────────────
 const DEFECT_POOL = [
-    { type: 'knot_cluster', label: 'Knots', color: '#8B4513', minLen: 2, maxLen: 5,  weight: 3 },
-    { type: 'seam',         label: 'Seam',  color: '#444444', minLen: 3, maxLen: 8,  weight: 3 },
-    { type: 'sweep',        label: 'Sweep', color: '#DAA520', minLen: 4, maxLen: 10, weight: 2 },
-    { type: 'rot',          label: 'Rot',   color: '#8B0000', minLen: 2, maxLen: 4,  weight: 1 },
+    { type: 'knot_cluster', label: 'Knots', color: '#8B4513', minLen: 2, maxLen: 5,  weight: 3, facePenalty: 1 },
+    { type: 'seam',         label: 'Seam',  color: '#444444', minLen: 3, maxLen: 8,  weight: 3, facePenalty: 1 },
+    { type: 'sweep',        label: 'Sweep', color: '#DAA520', minLen: 4, maxLen: 10, weight: 2, facePenalty: 1 },
+    { type: 'rot',          label: 'Rot',   color: '#8B0000', minLen: 2, maxLen: 4,  weight: 1, facePenalty: 2 },
 ];
 
 function generateDefects(logLength) {
@@ -75,7 +75,7 @@ function generateDefects(logLength) {
             facesAffected.push(available.splice(idx, 1)[0]);
         }
         defects.push({
-            type: t.type, label: t.label, color: t.color,
+            type: t.type, label: t.label, color: t.color, facePenalty: t.facePenalty,
             startFt, endFt: startFt + len, facesAffected
         });
     }
@@ -192,9 +192,15 @@ window.addEventListener('resize', () => {
 });
 
 // ─── Draw Log ──────────────────────────────────────────────────────────────
-function drawLog() {
+// redrawCanvases: redraws both canvases without touching the segments panel —
+// safe to call from rotation handlers after scoring so score text is preserved.
+function redrawCanvases() {
     drawLogGraphic(ctx, canvas, cuts);
     drawFaceMap(faceCtx, faceCanvas, currentDefects, cuts);
+}
+
+function drawLog() {
+    redrawCanvases();
     updateSegments();
 }
 
@@ -296,6 +302,11 @@ function drawFaceMap(context, can, defects, cutsList) {
             context.fillText(i.toString(), x, Math.round(tickH * 0.65));
         }
     }
+    // "ft" unit hint at right end of tick row
+    context.fillStyle = 'rgba(0,40,85,0.5)';
+    context.font      = `italic ${Math.max(6, tickFontSz - 1)}px Arial`;
+    context.textAlign = 'right';
+    context.fillText('ft', can.width - 2, Math.round(tickH * 0.65));
 
     // Cut markers (dashed red lines)
     if (cutsList && cutsList.length > 0) {
@@ -523,6 +534,11 @@ function drawLogGraphic(context, can, cutsList) {
             context.fillText(i + "'", x, 60 * Hs);
         }
     }
+    // Length axis label
+    context.fillStyle = '#888';
+    context.font      = `italic ${Math.max(7, Math.round(9 * Hs))}px Arial`;
+    context.textAlign = 'left';
+    context.fillText('length (ft)', 3, Math.max(9, Math.round(53 * Hs)));
 
     // Diameter labels
     const interval = Math.floor(totalLength / 4);
@@ -551,6 +567,12 @@ function drawLogGraphic(context, can, cutsList) {
         context.fillStyle   = '#000';
         context.fillText(diaIn + '"', labelX, yCenter + 35 * Hs);
     });
+    // Diameter axis label — left side, after the butt cap, away from the end-view indicator
+    const capWForLabel = Math.max(6, 12 * Hs);
+    context.fillStyle = '#888';
+    context.font      = `italic ${Math.max(7, Math.round(9 * Hs))}px Arial`;
+    context.textAlign = 'left';
+    context.fillText('diameter (in)', capWForLabel + 8 * Hs, yCenter + Math.round(47 * Hs));
 
     // Cut markers
     cutsList.forEach(cut => {
@@ -571,6 +593,16 @@ function drawLogGraphic(context, can, cutsList) {
         context.fillStyle   = '#fff';
         context.fillText(cut.toFixed(1) + "'", x, 42 * Hs);
     });
+
+    // Butt / top orientation labels: BUTT at bottom-left (clear of indicator);
+    // TOP at top-right on the same row as "length (ft)", clear of the bottom-right indicator.
+    const endFontSz = Math.max(7, Math.round(9 * Hs));
+    context.font      = `bold ${endFontSz}px Arial`;
+    context.fillStyle = '#777';
+    context.textAlign = 'left';
+    context.fillText('◄ BUTT', 5, can.height - 4);
+    context.textAlign = 'right';
+    context.fillText('TOP ►', can.width - 3, Math.max(9, Math.round(53 * Hs)));
 }
 
 // ─── Draw Defects ──────────────────────────────────────────────────────────
@@ -653,16 +685,47 @@ canvas.addEventListener('mousedown', (e) => {
 });
 
 window.addEventListener('mousemove', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const x    = (e.clientX - rect.left) * totalLength / rect.width;
+    const rect      = canvas.getBoundingClientRect();
+    const relX      = e.clientX - rect.left;
+    const relY      = e.clientY - rect.top;
+    const overCanvas = relX >= 0 && relX <= rect.width && relY >= 0 && relY <= rect.height;
+    const ft        = Math.max(0, Math.min(totalLength, relX * totalLength / rect.width));
 
     if (dragIdx !== -1) {
-        cuts[dragIdx] = Math.round(Math.max(0, Math.min(totalLength, x)) * 10) / 10;
+        cuts[dragIdx] = Math.round(ft * 10) / 10;
         drawLog();
-    } else {
-        const idx = cuts.findIndex(c => Math.abs(c - x) < 0.4);
+    } else if (overCanvas) {
+        const idx = cuts.findIndex(c => Math.abs(c - ft) < 0.4);
         canvas.style.cursor = (idx !== -1) ? 'ew-resize' : 'crosshair';
     }
+
+    // Hover tooltip
+    const tip = document.getElementById('hoverTooltip');
+    if (tip && totalLength) {
+        if (overCanvas || dragIdx !== -1) {
+            const dia = (buttDia - (buttDia - topDia) * (ft / totalLength)).toFixed(1);
+            tip.textContent    = `${ft.toFixed(1)} ft  |  ⌀ ${dia}"`;
+            tip.style.display  = 'block';
+            tip.style.left     = (e.clientX + 14) + 'px';
+            tip.style.top      = (e.clientY - 32) + 'px';
+        } else {
+            tip.style.display = 'none';
+        }
+    }
+});
+
+canvas.addEventListener('mouseleave', () => {
+    const tip = document.getElementById('hoverTooltip');
+    if (tip && dragIdx === -1) tip.style.display = 'none';
+});
+
+// Right-click on a cut marker to remove it
+canvas.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const ft   = (e.clientX - rect.left) * totalLength / rect.width;
+    const idx  = cuts.findIndex(c => Math.abs(c - ft) < 0.6);
+    if (idx !== -1) { cuts.splice(idx, 1); drawLog(); }
 });
 
 window.addEventListener('mouseup', () => {
@@ -715,25 +778,25 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowUp') {
         e.preventDefault();
         logRotation = (logRotation - 1 + 4) % 4;
-        drawLog();
+        redrawCanvases();
         updateRotationDisplay();
     } else if (e.key === 'ArrowDown') {
         e.preventDefault();
         logRotation = (logRotation + 1) % 4;
-        drawLog();
+        redrawCanvases();
         updateRotationDisplay();
     }
 });
 
 document.getElementById('rollUp').addEventListener('click', () => {
     logRotation = (logRotation - 1 + 4) % 4;
-    drawLog();
+    redrawCanvases();
     updateRotationDisplay();
 });
 
 document.getElementById('rollDown').addEventListener('click', () => {
     logRotation = (logRotation + 1) % 4;
-    drawLog();
+    redrawCanvases();
     updateRotationDisplay();
 });
 
@@ -779,20 +842,8 @@ function getClearFaces(startFt, endFt, defects) {
 }
 
 // ─── AHMI Grading Matrix (from PDF Page 14) ──────────────────────────────
-// Veneer added as a premium tier above the sawlog matrix:
-//   Requires all 4 clear faces + minimum scaling diameter (species-dependent).
-//   Red Oak: 14" minimum;  Yellow Poplar and others: 12" minimum.
-function getGradeAndPrice(dia, clearFaces, nomLen = Infinity) {
+function getGradeAndPrice(dia, clearFaces) {
     const d = Math.floor(dia);
-
-    // Veneer check — intercept before the sawlog matrix.
-    // Requires: all 4 clear faces, minimum 12" scaling diameter, minimum 12-foot log.
-    // The 12" diameter threshold is derived from the 50.0 cm (~19.7") float found
-    // in the HW Buck binary config (hw-stems/Veneer/default).
-    if (clearFaces >= 4 && d >= 12 && nomLen >= 12) {
-        return { grade: 'Veneer', pricePerBF: PRICES['Veneer'] ?? 4.50 };
-    }
-
     const faceIdx = Math.min(4, 4 - clearFaces); // 4 faces -> index 0, 3 faces -> index 1, etc.
 
     let grade = 'No. 3';
@@ -846,9 +897,9 @@ function scoreSegments(cutList, defects) {
 
             const clearFaces = getClearFaces(prevFt, prevFt + nomLen, defects);
             const volumeBF   = doyleVolume(effectiveDia, nomLen);
-            const gradeInfo  = getGradeAndPrice(effectiveDia, clearFaces, nomLen);
+            const gradeInfo  = getGradeAndPrice(effectiveDia, clearFaces);
             const value      = Math.round(volumeBF * gradeInfo.pricePerBF);
-            
+
             totalValue += value;
             segs.push({ startFt: prevFt, endFt, physicalLen, nomLen, scalingDia, clearFaces, volumeBF, gradeInfo, value });
         } else {
@@ -919,7 +970,7 @@ function computeOptimal() {
 
             const faces     = getClearFaces(startFt, startFt + nomLen, currentDefects);
             const vol       = doyleVolume(dia, nomLen);
-            const grade     = getGradeAndPrice(dia, faces, nomLen);
+            const grade     = getGradeAndPrice(dia, faces);
             const val       = Math.round(vol * grade.pricePerBF) + (dp[endStep] || 0);
             
             if (val > dp[i]) { dp[i] = val; choice[i] = endStep; }
@@ -1084,7 +1135,7 @@ document.getElementById('scoreLog').addEventListener('click', () => {
 
     segs.forEach((s, i) => {
         if (s.nomLen > 0) {
-            const faceColor = s.gradeInfo.grade === 'Veneer' ? '#6c3483' : s.clearFaces >= 3 ? '#27ae60' : s.clearFaces >= 2 ? '#e67e22' : '#c0392b';
+            const faceColor = s.clearFaces >= 3 ? '#27ae60' : s.clearFaces >= 2 ? '#e67e22' : '#c0392b';
             html += `<div class="segment" style="border-left:4px solid #c0392b;">
                 Log ${i+1}: <strong>${s.nomLen}'</strong> (${s.physicalLen.toFixed(1)}' piece) @
                 ${s.scalingDia.toFixed(1)}" |
@@ -1102,7 +1153,7 @@ document.getElementById('scoreLog').addEventListener('click', () => {
                 <h3 style="color:#002855;">&#10003; Optimal Bucking — $${optValue}</h3>`;
 
     optSegs.forEach((s, i) => {
-        const faceColor = s.gradeInfo.grade === 'Veneer' ? '#6c3483' : s.clearFaces >= 3 ? '#27ae60' : s.clearFaces >= 2 ? '#e67e22' : '#c0392b';
+        const faceColor = s.clearFaces >= 3 ? '#27ae60' : s.clearFaces >= 2 ? '#e67e22' : '#c0392b';
         html += `<div class="segment" style="border-left:4px solid #EAAA00;">
             Log ${i+1}: <strong>${s.nomLen}'</strong> @
             ${s.scalingDia.toFixed(1)}" |
@@ -1282,7 +1333,6 @@ document.getElementById('trimInput').addEventListener('change', drawLog);
 // ─── Build Grading Reference Table ─────────────────────────────────────────
 (function buildGradingTable() {
     const gradeColors = {
-        'Veneer': '#6c3483',
         'Prime': '#1a6e37', 'Select+': '#2980b9', 'Select': '#2471a3',
         'No. 1+': '#7d6608', 'No. 1': '#9a7d0a', 'No. 2+': '#6e2f1a',
         'No. 2': '#922b21', 'No. 3': '#555555'

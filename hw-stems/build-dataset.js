@@ -133,6 +133,7 @@ function convertDefect(d, stemLengthFt, buttDia, topDia) {
         type:         info.type,
         label:        info.label,
         color:        info.color,
+        facePenalty:  info.facePenalty ?? 1,
         startFt:      Math.round(startFt * 10) / 10,
         endFt:        Math.round(endFt   * 10) / 10,
         facesAffected,

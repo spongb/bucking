@@ -23,6 +23,23 @@
             </label>
         </div>
         
+        <details id="instructions" style="margin-bottom:10px; text-align:left; font-size:13px; background:#f5f8ff; border:1px solid #b0bcd4; border-radius:6px; padding:6px 12px;">
+            <summary style="cursor:pointer; font-weight:bold; color:#002855;">&#9432; How to use this trainer</summary>
+            <div style="margin-top:8px; line-height:1.75; color:#333;">
+                <p style="margin:0 0 6px;"><strong>Goal:</strong> Buck (cut) the stem into logs that maximize total value based on the AHMI grading matrix. Grade is determined by the <em>small-end diameter</em> and number of <em>clear (defect-free) faces</em> in each log.</p>
+                <ul style="margin:0 0 6px; padding-left:20px;">
+                    <li><strong>Click</strong> anywhere on the log diagram to place a cut.</li>
+                    <li><strong>Drag</strong> a cut marker left or right to reposition it.</li>
+                    <li><strong>Right-click</strong> a cut marker to remove it.</li>
+                    <li><strong>Roll Up / Roll Down</strong> (or arrow keys) rotates the log so you can inspect all four faces for defects.</li>
+                    <li>Logs must meet a standard length (8, 10, 12, 14, or 16 ft) after subtracting trim allowance. Pieces too short to make 8 ft are waste.</li>
+                    <li>Diameter is measured at the <em>small end</em> of each nominal log length.</li>
+                    <li>Click <strong>Score This Log</strong> to see your value, the optimal solution, and an explanation of any difference.</li>
+                </ul>
+                <p style="margin:0; color:#555;">The <strong>Face Defect Map</strong> below the log shows which faces each defect affects. Use it alongside the rotation view to decide where to cut.</p>
+            </div>
+        </details>
+
         <div id="defectLegend" style="text-align:left;"></div>
 
         <details id="gradingRef" style="margin-bottom:12px; text-align:left; font-size:13px;">
@@ -77,6 +94,10 @@
     </div>
 
     <div id="finalReport" style="display:none; max-width:900px; margin:auto; padding:20px; font-family:Arial,sans-serif;"></div>
+
+    <div id="hoverTooltip" style="position:fixed; display:none; background:rgba(0,0,0,0.78);
+        color:#fff; padding:3px 9px; border-radius:4px; font-size:12px; font-family:Arial,sans-serif;
+        pointer-events:none; z-index:200; white-space:nowrap;"></div>
 
     <script src="script.js"></script>
 </body>
