@@ -1,59 +1,171 @@
-body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #ffffff; }
-.container { max-width: 900px; margin: auto; text-align: center; }
-h1 { color: #002855; border-bottom: 3px solid #EAAA00; padding-bottom: 8px; margin-bottom: 12px; }
+/* Import Fonts from Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Merriweather:wght@700&family=Roboto:wght@400;700&display=swap');
 
-#logCanvas    { border: 2px solid #002855; background: linear-gradient(to bottom, #e8e8e8, #dddbdb); cursor: crosshair; display: block; margin: 0 auto; max-width: 100%; height: auto; touch-action: none; }
-#optCanvas    { border: 2px solid #EAAA00; background: linear-gradient(to bottom, #e8e8e8, #dddbdb); cursor: default;    display: block; margin: 0 auto; max-width: 100%; height: auto; }
-#faceCanvas   { border: 2px solid #002855; border-top: none; background: #f5f8ff; display: block; margin: 0 auto; max-width: 100%; height: auto; }
-#optFaceCanvas{ border: 2px solid #EAAA00; border-top: none; background: #f5f8ff; display: block; margin: 0 auto; max-width: 100%; height: auto; }
+/*
+   ==========================================================================
+   Branding Variables
+   Based on WVU Brand Guidelines and application-specific needs.
+   ==========================================================================
+*/
+:root {
+    /* WVU Primary Palette */
+    --wvu-blue: #002855;
+    --wvu-gold: #EAAA00;
 
-#info { margin: 14px 0; font-size: 18px; }
-button { padding: 10px 20px; margin: 4px 6px; background: #EAAA00; color: #002855; font-weight: bold; border: none; cursor: pointer; border-radius: 4px; font-size: 15px; }
-button:hover { background: #C9930A; color: #fff; }
-#segments { margin-top: 16px; text-align: left; }
-.segment { background: #ffffff; padding: 10px; margin: 5px 0; border-radius: 5px; border: 1px solid #e0e0e0; font-size: 14px; }
-#gameHeader {
-    display: flex;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 4px;
-    font-size: 18px;
+    /* WVU Secondary Palette */
+    --wvu-slate: #5A5A5A;
+    --wvu-fog: #C0C8D8;
+    --wvu-cloud: #F5F8FF;
+    --wvu-sky: #EAF0FA;
+
+    /* Natural Tones (for forestry context) */
+    --forest-green: #2E4636;
+    --bark-brown: #5C3317;
+
+    /* Semantic/Feedback Colors */
+    --feedback-success: #27ae60;
+    --feedback-warning: #e67e22;
+    --feedback-error: #c0392b;
+
+    /* Defect Colors */
+    --defect-knot: #8B4513;
+    --defect-burl: #A0522D;
+    --defect-seam: #444444;
+    --defect-sweep: #DAA520;
+    --defect-rot: #8B0000;
+    --defect-stain: #7B0000;
+    --defect-hole: #556B2F;
+    --defect-check: #555555;
+
+    /* Typography */
+    --font-heading: 'Merriweather', 'Georgia', serif;
+    --font-body: 'Roboto', 'Helvetica', 'Arial', sans-serif;
+
+    /* UI */
+    --border-radius: 6px;
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+
+/*
+   ==========================================================================
+   Base & Typographic Styles
+   ==========================================================================
+*/
+body {
+    font-family: var(--font-body);
+    color: #333;
+    background-color: #fdfdfd;
+    margin: 0;
+    padding: 20px;
+}
+
+h1, h2, h3, h4, h5 {
+    font-family: var(--font-heading);
+    color: var(--wvu-blue);
+}
+
+h1 {
+    border-bottom: 4px solid var(--wvu-gold);
+    padding-bottom: 8px;
+}
+
+button {
+    font-family: var(--font-body);
     font-weight: bold;
-    margin-bottom: 10px;
-    padding: 8px 12px;
-    background: #002855;
-    color: #fff;
-    border-radius: 6px;
-    border-bottom: 3px solid #EAAA00;
+    font-size: 16px;
+    padding: 10px 20px;
+    border-radius: var(--border-radius);
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s, transform 0.1s;
 }
-#logInfo {
-    margin-bottom: 10px;
-    font-size: 15px;
-    flex-wrap: wrap;
+
+button:hover {
+    transform: translateY(-1px);
 }
-#defectLegend {
-    margin-bottom: 12px;
-    min-height: 20px;
+
+button:active {
+    transform: translateY(0);
 }
-#gradingRef {
+
+/*
+   ==========================================================================
+   Layout & Responsiveness
+   ==========================================================================
+*/
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 15px;
+    text-align: center;
+}
+
+#gradingRef, #finalReport {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
 }
+
 #gradingRef table {
     min-width: 420px;
 }
-#finalReport {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-}
 
 @media (max-width: 600px) {
-    body { padding: 8px; }
-    h1 { font-size: 20px; margin-bottom: 8px; }
-    #gameHeader { font-size: 14px; padding: 6px 10px; }
-    #logInfo { font-size: 13px; }
-    #info { font-size: 15px; margin: 10px 0; }
-    button { padding: 9px 14px; font-size: 13px; margin: 3px 4px; }
-    .segment { font-size: 13px; padding: 8px; }
-    #defectLegend { font-size: 13px; }
+    body {
+        padding: 10px 5px;
+    }
+    .container {
+        padding: 0 5px;
+    }
+    h1 {
+        font-size: 22px;
+    }
+    button {
+        padding: 9px 15px;
+        font-size: 14px;
+    }
+    .segment {
+        font-size: 13px;
+    }
+    #finalReport table, #finalReport div {
+        font-size: 13px;
+    }
+}
+
+/*
+   ==========================================================================
+   Component Styles
+   ==========================================================================
+*/
+
+/* Main action buttons */
+#scoreLog, #nextLog {
+    background-color: var(--wvu-blue);
+    color: white;
+}
+#scoreLog:hover, #nextLog:hover {
+    background-color: #003a7d; /* A slightly lighter blue */
+}
+
+/* Segment cards */
+.segment {
+    background-color: var(--wvu-sky);
+    border: 1px solid var(--wvu-fog);
+    border-left-width: 5px;
+    padding: 10px 15px;
+    margin: 8px 0;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-sm);
+}
+
+/* Tooltip */
+#hoverTooltip {
+    background-color: rgba(0, 40, 85, 0.9); /* semi-transparent wvu-blue */
+    color: white;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 14px;
+    pointer-events: none;
+    position: absolute;
+    z-index: 100;
 }

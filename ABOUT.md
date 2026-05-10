@@ -4,18 +4,6 @@ A browser-based interactive log bucking training tool built for WVU Forestry edu
 
 ---
 
-## Background and Purpose
-
-In the timber supply chain, there is a clear division of responsibility:
-
-1.  **The Logger's Role:** At the landing, the logger assesses a tree stem based on its external characteristics: length, diameter, taper, sweep, and visible defects (knots, seams, rot). Their goal is to buck the stem into a set of logs that will yield the highest possible price from the mill. They are paid based on the grade and volume of the *delivered logs*.
-
-2.  **The Mill's Role:** The mill takes the delivered logs and processes them into finished products, like lumber. The price they offer for logs of a certain grade is a **proxy** for the value they expect to recover from it. For example, a high-grade "Prime" log is expected to yield a high volume of valuable clear lumber, so the mill pays a premium for it.
-
-This trainer focuses exclusively on the **logger's decision-making problem**. It challenges the user to make the best cuts based on external signs to maximize the value of the delivered logs, according to a standard mill-provided price list.
-
----
-
 ## How It Works
 
 ### User Workflow
@@ -165,20 +153,6 @@ Only K, BU, SE, and F are referenced in original HW Buck user documentation. The
 | Shagbark Hickory | 15 |
 
 Synthetic trees are assigned `treeNum` values starting at 1001. Stem dimensions (length, butt diameter, taper) and defect counts are sampled from species-specific distributions calibrated to typical Appalachian sawlog-quality stems. Defect type weights reflect each species' characteristic defect profile (e.g., oaks skew toward knot clusters; ash and cherry skew toward seams; walnut includes more sweep).
-
----
-
-## Comparison to Value Recovery Simulators
-
-It is important to distinguish this tool from more complex academic and commercial simulators like OSU's BUCK or the system described by Wang et al. (2004).
-
-| Feature | Bucking Trainer (This Project) | Advanced Value Simulators (e.g., OSU BUCK) |
-| :--- | :--- | :--- |
-| **Primary Goal** | **Train** users on log grading and defect isolation. | **Maximize** lumber value recovery by simulating the sawing process. |
-| **Value Model** | **Proxy-based:** Value is based on the grade of the delivered log. | **Product-based:** Value is the sum of the prices of all individual boards sawn from the log. |
-| **Defect Model** | **External:** Defects are 2D features that block one or more of the four log faces. | **Internal:** Defects are 3D volumes that interrupt saw lines and reduce lumber grade/yield. |
-
-In essence, this trainer simulates the logger's problem of maximizing *log value*, while advanced simulators model the mill's problem of maximizing *lumber value*. Both use dynamic programming, but they optimize for different value models. This tool correctly models the economic reality faced by a logger at the landing.
 
 ---
 
