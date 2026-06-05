@@ -11,12 +11,12 @@
         <h1>🪵 Bucking Trainer</h1>
 
         <div id="gameHeader">
-            <span id="logCounter">Log 1 of 5</span>
+            <span id="logCounter">Stem 1 of 5</span>
             <span id="gameScore">Running Score: 0%</span>
         </div>
 
         <div id="logInfo">
-            <strong>Log:</strong> <span id="logDesc"></span> &nbsp;|&nbsp;
+            <strong>Stem:</strong> <span id="logDesc"></span> &nbsp;|&nbsp;
             <label><strong>Trim:</strong>
                 <input id="trimInput" type="number" value="4" min="0" max="12" step="0.5"
                        style="width:50px; margin:0 4px;"> in
@@ -28,15 +28,15 @@
             <div style="margin-top:8px; line-height:1.75; color:#333;">
                 <p style="margin:0 0 6px;"><strong>Goal:</strong> Buck (cut) the stem into logs that maximize total value based on the AHMI grading matrix. Grade is determined by the <em>small-end diameter</em> and number of <em>clear (defect-free) faces</em> in each log.</p>
                 <ul style="margin:0 0 6px; padding-left:20px;">
-                    <li><strong>Click</strong> anywhere on the log diagram to place a cut.</li>
+                    <li><strong>Click</strong> anywhere on the stem diagram to place a cut.</li>
                     <li><strong>Drag</strong> a cut marker left or right to reposition it.</li>
                     <li><strong>Right-click</strong> a cut marker to remove it.</li>
-                    <li><strong>Roll Up / Roll Down</strong> (or arrow keys) rotates the log so you can inspect all four faces for defects.</li>
+                    <li><strong>Roll Up / Roll Down</strong> (or arrow keys) rotates the stem so you can inspect all four faces for defects.</li>
                     <li>Logs must meet a standard length (8, 10, 12, 14, or 16 ft) after subtracting trim allowance. Pieces too short to make 8 ft are waste.</li>
                     <li>Diameter is measured at the <em>small end</em> of each nominal log length.</li>
-                    <li>Click <strong>Score This Log</strong> to see your value, the optimal solution, and an explanation of any difference.</li>
+                    <li>Click <strong>Score This Stem</strong> to see your value, the optimal solution, and an explanation of any difference.</li>
                 </ul>
-                <p style="margin:0; color:#555;">The <strong>Face Defect Map</strong> below the log shows which faces each defect affects. Use it alongside the rotation view to decide where to cut.</p>
+                <p style="margin:0; color:#555;">The <strong>Face Defect Map</strong> below the stem shows which faces each defect affects. Use it alongside the rotation view to decide where to cut.</p>
             </div>
         </details>
 
@@ -66,9 +66,9 @@
         <canvas id="logCanvas" width="800" height="200"></canvas>
         <div id="rotationControl" style="display:flex; align-items:center; gap:8px; justify-content:center; margin:5px 0 2px;">
             <span style="font-size:12px; color:#666;">&#8593;&#8595; arrow keys or:</span>
-            <button id="rollUp"   style="padding:3px 14px; font-size:13px;" title="Roll log up (&#8593;)">&#9650; Roll Up</button>
+            <button id="rollUp"   style="padding:3px 14px; font-size:13px;" title="Roll stem up (&#8593;)">&#9650; Roll Up</button>
             <span id="rotLabel"   style="font-size:13px; color:#002855; font-weight:bold; min-width:110px; text-align:center;">Face 1 on Top</span>
-            <button id="rollDown" style="padding:3px 14px; font-size:13px;" title="Roll log down (&#8595;)">&#9660; Roll Down</button>
+            <button id="rollDown" style="padding:3px 14px; font-size:13px;" title="Roll stem down (&#8595;)">&#9660; Roll Down</button>
         </div>
         <div style="font-size:11px; font-weight:bold; color:#002855; text-align:left;
                     margin:2px 0 0; letter-spacing:0.03em;">&#9632; Face Defect Map</div>
@@ -84,8 +84,8 @@
 
         <div id="info">
             <p>Segments: <span id="segmentCount">0</span> &nbsp;|&nbsp; Your Value: $<span id="totalValue">0</span></p>
-            <button id="scoreLog">Score This Log</button>
-            <button id="nextLog" style="display:none;">Next Log →</button>
+            <button id="scoreLog">Score This Stem</button>
+            <button id="nextLog" style="display:none;">Next Stem →</button>
             <button id="reset">Reset Cuts</button>
         </div>
 

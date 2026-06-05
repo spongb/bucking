@@ -121,7 +121,7 @@ function loadLog(logObj) {
     document.getElementById('logDesc').textContent =
         `${displaySpecies} — ${totalLength}ft  |  Butt: ${buttDia}"  |  Top: ${topDia}"`;
     document.getElementById('logCounter').textContent =
-        `Log ${currentLogIndex + 1} of ${TOTAL_LOGS}`;
+        `Stem ${currentLogIndex + 1} of ${TOTAL_LOGS}`;
     document.getElementById('nextLog').style.display   = 'none';
     document.getElementById('scoreLog').style.display  = 'inline-block';
     document.getElementById('segments').innerHTML      = '';
@@ -1040,7 +1040,7 @@ function generateBuckingExplanation(userSegs, optSegs, defects) {
 
     if (userValue >= optValue) {
         return `<div style="background:${COLORS.wvuSky}; border:1px solid ${COLORS.wvuGold}; border-radius:8px;
-                             padding:12px 16px; margin:12px 0; font-size:14px;">
+                             padding:12px 16px; margin:12px 0; font-size:14px; text-align:left;">
             <strong style="color:${COLORS.wvuBlue};">&#128077; You matched the optimal solution!</strong>
         </div>`;
     }
@@ -1160,7 +1160,7 @@ function generateBuckingExplanation(userSegs, optSegs, defects) {
     const gap = optValue - userValue;
 
     let html = `<details style="background:${COLORS.wvuCloud}; border:2px solid ${COLORS.wvuBlue}; border-radius:8px;
-                                 padding:12px 16px; margin:12px 0; font-size:14px;" open>
+                                 padding:12px 16px; margin:12px 0; font-size:14px; text-align:left;" open>
         <summary style="cursor:pointer; font-weight:bold; color:${COLORS.wvuBlue}; font-size:15px;">
             &#128270; Why is the optimal solution $${gap} more?
         </summary>
@@ -1206,7 +1206,7 @@ document.getElementById('scoreLog').addEventListener('click', () => {
     let html = `
         <div style="background:#FFF8E1; padding:15px; border-radius:8px; margin:15px 0;
                     font-size:16px; border:2px solid ${COLORS.wvuGold};">
-            <strong>Log ${currentLogIndex + 1} Result:</strong>
+            <strong>Stem ${currentLogIndex + 1} Result:</strong>
             Your Value: <strong>$${totalValue}</strong> &nbsp;|&nbsp;
             Optimal: <strong>$${optValue}</strong> &nbsp;|&nbsp;
             <strong style="color:${scoreColor}; font-size:20px;">${pct}%</strong>
@@ -1311,7 +1311,7 @@ function showFinalScore() {
 
     const rows = logScores.map(l => `
         <tr>
-            <td style="padding:8px 16px;">Log ${l.logNum}</td>
+            <td style="padding:8px 16px;">Stem ${l.logNum}</td>
             <td style="padding:8px 12px;">$${l.totalValue}</td>
             <td style="padding:8px 12px;">$${l.optValue}</td>
             <td style="padding:8px 12px; color:${l.pct>=90?COLORS.feedback.success:l.pct>=70?COLORS.feedback.warning:COLORS.feedback.error}">
@@ -1340,7 +1340,7 @@ function showFinalScore() {
             <table style="margin:0 auto 20px; border-collapse:collapse; font-size:15px; width:100%; max-width:700px;">
                 <thead>
                     <tr style="background:${COLORS.wvuBlue}; color:#fff;">
-                        <th style="padding:10px 16px; text-align:left;">Log</th>
+                    <th style="padding:10px 16px; text-align:left;">Stem</th>
                         <th style="padding:10px 12px;">Your $</th>
                         <th style="padding:10px 12px;">Optimal $</th>
                         <th style="padding:10px 12px;">Score</th>
