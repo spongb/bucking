@@ -17,7 +17,7 @@ A browser-based interactive log bucking training tool built for WVU Forestry edu
 
 ### Log Diagram Features
 
-**Main canvas (log profile):** Draws a tapered trapezoid representing the stem in side view. Defects are rendered as colored bands at their precise start/end foot positions. The butt is on the left, top on the right. Cut lines appear as vertical lines with foot-position labels. Hover over any position to see a tooltip with the scaling diameter at that point (interpolated linearly between butt and top) and the foot position. The canvas resizes responsively to the browser window.
+**Main canvas (log profile):** Draws a tapered stem in side view, including a smooth graphical crook wherever sweep data is present. Defects are rendered as colored bands at their precise start/end foot positions. The butt is on the left, top on the right. Cut lines appear as vertical lines with foot-position labels. Hover over any position to see a tooltip with the scaling diameter at that point (interpolated linearly between butt and top) and the foot position. The canvas resizes responsively to the browser window.
 
 **Face defect map (face canvas):** A four-lane horizontal strip below the main canvas. Each lane represents one face (F1–F4), and defect blocks are drawn in the lane(s) of every face they affect. Rotating the log cycles which face is displayed on top — the lane labels shift to reflect the new orientation (triangle markers indicate Top, Right, Bottom, Left). This lets the user examine each face individually and plan cuts to keep defect-free faces intact.
 
@@ -213,6 +213,39 @@ buckR's 1 cm grid on a 15-meter stem produces approximately 1,500 DP positions. 
 - **Explanation generation** — natural-language feedback on why the user's cuts differed from optimal, referencing specific defects and grade thresholds.
 - **Visual interactivity** — canvas-based stem diagram, face defect map, rotation, hover tooltips, and direct cut placement.
 - **Hardwood-specific dataset** — 150 real Appalachian hardwood stems plus ~165 synthetic stems across 8 commercially important species.
+
+---
+
+## Comparison: SumBuck
+
+[SumBuck](https://sumbuck.lumbermen.org/) is a web-based hardwood log-bucking training app from Lumbermen OS. It combines full-stem bucking practice, optimizer comparison, curated instruction stems, and a separate exercise for grading pre-cut logs. It supports eleven valuable hardwood species and allows users to enter their own market specifications and prices.
+
+### Comparison Table
+
+| Dimension | This Trainer | SumBuck |
+|---|---|---|
+| Primary purpose | Teach AHMI hardwood bucking decisions and defect interactions | Practice bucking, learn curated lessons, and practice calling log grades |
+| Optimization | Dynamic programming over 0.5-ft positions and standard log lengths | Interactive bucking exercise with an optimizer that maximizes total stem value |
+| Grading model | AHMI matrix based on Doyle board footage, SED, and clear faces | Market-oriented grading and pricing, including International 1/4 rule examples and user-entered specifications/prices |
+| Defect model | Explicit defect records for knots, seams, sweep, rot, forks, holes, and end checks | Defect and grading information is presented through the app's practice stems and grading exercises; its public workflow does not expose this project's `.shp`/`.def` model |
+| Stem representation | Reverse-engineered HW Buck profiles with separate `.shp` and `.def` files | Web-hosted practice stems and instruction logs |
+| Training feedback | Explains how cuts, defects, clear faces, and grade thresholds affect value | Provides optimizer comparison, curated instruction stems, and score-based practice workflows |
+| Platform | Local browser application with an included dataset | Hosted web application |
+| Market flexibility | Fixed AHMI grades and configured prices | Built-in markets plus custom specifications and prices |
+
+### Where SumBuck Is Stronger
+
+- **Broader practice workflow** — SumBuck separates three useful activities: bucking a full stem, stepping through instruction logs, and grading pre-cut logs.
+- **Market customization** — users can enter their own product specifications and prices, which is useful when practicing for a particular local market rather than one fixed grading matrix.
+- **Species breadth** — its public interface advertises eleven hardwood species, compared with this trainer's eight synthetic species plus four species represented in the real HW Buck data.
+- **Hosted access** — SumBuck can be used directly through a web browser without setting up this repository locally.
+
+### Where This Trainer Is Stronger
+
+- **Defect-to-grade transparency** — this trainer exposes the defect records and shows how each defect affects faces, diameter, usable length, or grade.
+- **AHMI-focused instruction** — the fixed grading model keeps the exercise centered on the relationship between small-end diameter, clear faces, standard log lengths, and value.
+- **Explanatory feedback** — the trainer describes why a user's cuts differ from the optimum and identifies the relevant defect or grade threshold.
+- **Open local dataset** — the stem profiles, defect records, parser, converter, and generated dataset are available for inspection and modification.
 
 ---
 

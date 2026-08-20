@@ -370,6 +370,22 @@ function formatFeetInches(decimalFeet) {
     return parts.length > 0 ? parts.join(' ') : `0"`;
 }
 
+function getCrookOffset(ft, pxPerIn) {
+    let offset = 0;
+    currentDefects.forEach(d => {
+        if (d.type !== 'sweep' || ft < d.startFt || ft > d.endFt) return;
+        const span = Math.max(0.01, d.endFt - d.startFt);
+        const progress = (ft - d.startFt) / span;
+        const profile = Math.sin(progress * Math.PI);
+        const face = d.facesAffected && d.facesAffected.length > 0 ? d.facesAffected[0] : 0;
+        const visualFace = (face - logRotation + 4) % 4;
+        const direction = FACE_Y_FRAC[visualFace] / 0.62;
+        const magnitude = d.widthIn > 0 ? d.widthIn : 1;
+        offset += direction * magnitude * pxPerIn * profile;
+    });
+    return offset;
+}
+
 function drawLogGraphic(context, can, cutsList) {
     context.clearRect(0, 0, can.width, can.height);
     const scale   = getScale(can);
@@ -383,7 +399,7 @@ function drawLogGraphic(context, can, cutsList) {
         const frac     = ft / totalLength;
         const diaIn    = buttDia - (buttDia - topDia) * frac;
         const radiusPx = (diaIn / 2) * pxPerIn;
-        points.push({ x: ft * scale, radiusPx });
+        points.push({ x: ft * scale, radiusPx, centerOffset: getCrookOffset(ft, pxPerIn) });
     }
 
     // Per-face defect colors (used across drawing steps)
@@ -407,11 +423,11 @@ function drawLogGraphic(context, can, cutsList) {
         context.beginPath();
         for (let i = 0; i < points.length; i++) {
             const p = points[i];
-            if (i === 0) context.moveTo(p.x, yCenter + t * p.radiusPx);
-            else         context.lineTo(p.x, yCenter + t * p.radiusPx);
+            if (i === 0) context.moveTo(p.x, yCenter + p.centerOffset + t * p.radiusPx);
+            else         context.lineTo(p.x, yCenter + p.centerOffset + t * p.radiusPx);
         }
         for (let i = points.length - 1; i >= 0; i--) {
-            context.lineTo(points[i].x, yCenter + b * points[i].radiusPx);
+            context.lineTo(points[i].x, yCenter + points[i].centerOffset + b * points[i].radiusPx);
         }
         context.closePath();
         context.fillStyle = bandShade[vf];
@@ -422,11 +438,11 @@ function drawLogGraphic(context, can, cutsList) {
             context.beginPath();
             for (let i = 0; i < points.length; i++) {
                 const p = points[i];
-                if (i === 0) context.moveTo(p.x, yCenter + t * p.radiusPx);
-                else         context.lineTo(p.x, yCenter + t * p.radiusPx);
+                if (i === 0) context.moveTo(p.x, yCenter + p.centerOffset + t * p.radiusPx);
+                else         context.lineTo(p.x, yCenter + p.centerOffset + t * p.radiusPx);
             }
             for (let i = points.length - 1; i >= 0; i--) {
-                context.lineTo(points[i].x, yCenter + b * points[i].radiusPx);
+                context.lineTo(points[i].x, yCenter + points[i].centerOffset + b * points[i].radiusPx);
             }
             context.closePath();
             context.globalAlpha = 0.15;
@@ -442,8 +458,8 @@ function drawLogGraphic(context, can, cutsList) {
         context.beginPath();
         for (let i = 0; i < points.length; i++) {
             const p = points[i];
-            if (i === 0) context.moveTo(p.x, yCenter + bandBotFrac[vf] * p.radiusPx);
-            else         context.lineTo(p.x, yCenter + bandBotFrac[vf] * p.radiusPx);
+            if (i === 0) context.moveTo(p.x, yCenter + p.centerOffset + bandBotFrac[vf] * p.radiusPx);
+            else         context.lineTo(p.x, yCenter + p.centerOffset + bandBotFrac[vf] * p.radiusPx);
         }
         context.strokeStyle = 'rgba(0,0,0,0.22)';
         context.lineWidth   = Math.max(0.5, 1 * Hs);
@@ -454,11 +470,11 @@ function drawLogGraphic(context, can, cutsList) {
     context.beginPath();
     for (let i = 0; i < points.length; i++) {
         const p = points[i];
-        if (i === 0) context.moveTo(p.x, yCenter - p.radiusPx);
-        else         context.lineTo(p.x, yCenter - p.radiusPx);
+        if (i === 0) context.moveTo(p.x, yCenter + p.centerOffset - p.radiusPx);
+        else         context.lineTo(p.x, yCenter + p.centerOffset - p.radiusPx);
     }
     for (let i = points.length - 1; i >= 0; i--) {
-        context.lineTo(points[i].x, yCenter - points[i].radiusPx + Math.max(3, 5 * Hs));
+        context.lineTo(points[i].x, yCenter + points[i].centerOffset - points[i].radiusPx + Math.max(3, 5 * Hs));
     }
     context.closePath();
     const hlGrad = context.createLinearGradient(0, yCenter - points[0].radiusPx, 0, yCenter);
@@ -476,15 +492,15 @@ function drawLogGraphic(context, can, cutsList) {
     context.beginPath();
     for (let i = 0; i < points.length; i++) {
         const p = points[i];
-        if (i === 0) context.moveTo(p.x, yCenter - p.radiusPx);
-        else         context.lineTo(p.x, yCenter - p.radiusPx);
+        if (i === 0) context.moveTo(p.x, yCenter + p.centerOffset - p.radiusPx);
+        else         context.lineTo(p.x, yCenter + p.centerOffset - p.radiusPx);
     }
     context.stroke();
     context.beginPath();
     for (let i = 0; i < points.length; i++) {
         const p = points[i];
-        if (i === 0) context.moveTo(p.x, yCenter + p.radiusPx);
-        else         context.lineTo(p.x, yCenter + p.radiusPx);
+        if (i === 0) context.moveTo(p.x, yCenter + p.centerOffset + p.radiusPx);
+        else         context.lineTo(p.x, yCenter + p.centerOffset + p.radiusPx);
     }
     context.stroke();
 
@@ -667,12 +683,13 @@ function drawDefects(context, defects, scale, yCenter, pxPerIn) {
         const frac  = midFt / totalLength;
         const dia   = buttDia - (buttDia - topDia) * frac;
         const r     = (dia / 2) * pxPerIn;
+        const centerOffset = getCrookOffset(midFt, pxPerIn);
 
         context.globalAlpha = 0.78;
 
         d.facesAffected.forEach(face => {
             const vf = (face - logRotation + 4) % 4; // visual position for this face
-            const fy = yCenter + FACE_Y_FRAC[vf] * r;
+            const fy = yCenter + centerOffset + FACE_Y_FRAC[vf] * r;
             const fh = FACE_BAND_H * r;
 
             if (d.type === 'knot_cluster') {
@@ -708,9 +725,9 @@ function drawDefects(context, defects, scale, yCenter, pxPerIn) {
         context.textAlign   = 'center';
         context.strokeStyle = '#fff';
         context.lineWidth   = Math.max(1, 2 * Hs);
-        context.strokeText(d.label, (x1 + x2) / 2, yCenter - r - 6 * Hs);
+        context.strokeText(d.label, (x1 + x2) / 2, yCenter + centerOffset - r - 6 * Hs);
         context.fillStyle   = d.color;
-        context.fillText(d.label, (x1 + x2) / 2, yCenter - r - 6 * Hs);
+        context.fillText(d.label, (x1 + x2) / 2, yCenter + centerOffset - r - 6 * Hs);
     });
 }
 
