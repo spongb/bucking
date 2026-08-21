@@ -38,6 +38,11 @@ let PRICES = {
     'No. 1+': 1.50, 'No. 1': 1.20, 'No. 2+': 1.00, 'No. 2': 0.80, 'No. 3': 0.30
 };
 
+// ─── Sweep Deduction Rule ─────────────────────────────────────────────────
+// AHMI rule: Diameter rule = Gross Sweep / 4; Length rule = Gross Sweep / 3
+// Options: 'diameter' or 'length'. Deductions that round down to zero are ignored.
+const SWEEP_RULE = 'diameter';
+
 // ─── Real Tree Dataset ─────────────────────────────────────────────────────
 // Loaded from hw-stems/trees.json at startup. Falls back to random generation
 // if the file is unavailable (e.g. opening index.html directly without the server).
@@ -119,7 +124,7 @@ function loadLog(logObj) {
         ? logObj.species.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
         : 'Hardwood';
     document.getElementById('logDesc').textContent =
-        `${displaySpecies} — ${totalLength}ft  |  Butt: ${buttDia}"  |  Top: ${topDia}"`;
+        `${displaySpecies} (${logObj.treeNum}) — ${totalLength}ft  |  Butt: ${buttDia}"  |  Top: ${topDia}"`;
     document.getElementById('logCounter').textContent =
         `Stem ${currentLogIndex + 1} of ${TOTAL_LOGS}`;
     document.getElementById('nextLog').style.display   = 'none';
@@ -870,11 +875,36 @@ document.getElementById('rollDown').addEventListener('click', () => {
 // We use the actual measured sweep magnitude (widthIn, stored in inches from the
 // .def file) as the scaling diameter deduction. Falls back to 1" if widthIn is
 // absent (e.g. randomly generated logs that don't carry the real measurement).
-function applySweepDeduction(baseDia, startFt, endFt, defects) {
+/**
+ * Apply AHMI sweep deduction to scaling diameter.
+ * AHMI Rules: Diameter rule = floor(Gross Sweep / 4); Length rule = floor(Gross Sweep / 3)
+ * Deductions that round down to zero are ignored.
+ * @param {number} baseDia - Base scaling diameter in inches
+ * @param {number} startFt - Start of log segment in feet
+ * @param {number} endFt - End of log segment in feet
+ * @param {array} defects - Array of defect objects
+ * @param {string} rule - 'diameter' or 'length' (uses SWEEP_RULE if not provided)
+ * @returns {number} Adjusted diameter, minimum 6 inches
+ */
+function applySweepDeduction(baseDia, startFt, endFt, defects, rule = SWEEP_RULE) {
     let dia = baseDia;
     defects.forEach(d => {
         if (d.type === 'sweep' && d.startFt < endFt && d.endFt > startFt) {
-            dia -= (d.widthIn > 0) ? d.widthIn : 1;
+            const grossSweep = d.widthIn > 0 ? d.widthIn : 0;
+            let deduction = 0;
+            
+            if (rule === 'diameter') {
+                // AHMI diameter rule: deduction = floor(Gross Sweep / 4)
+                deduction = Math.floor(grossSweep / 4);
+            } else if (rule === 'length') {
+                // AHMI length rule: deduction = floor(Gross Sweep / 3)
+                deduction = Math.floor(grossSweep / 3);
+            }
+            
+            // Only apply deduction if it's >= 1
+            if (deduction > 0) {
+                dia -= deduction;
+            }
         }
     });
     return Math.max(6, dia);
@@ -1241,7 +1271,7 @@ document.getElementById('scoreLog').addEventListener('click', () => {
             const faceColor = s.clearFaces >= 3 ? COLORS.feedback.success : s.clearFaces >= 2 ? COLORS.feedback.warning : COLORS.feedback.error;
             html += `<div class="segment" style="border-left-color: ${COLORS.feedback.error};">
                 Log ${i+1}: <strong>${s.nomLen}'</strong> (${formatFeetInches(s.physicalLen)} piece) @
-                ${s.scalingDia.toFixed(1)}" |
+                ${s.scalingDia.toFixed(1)}" | <strong>${s.volumeBF} bf</strong> |
                 <span style="color:${faceColor}; font-weight:bold;">${s.clearFaces} clear faces</span>
                 &rarr; <strong>${s.gradeInfo.grade}</strong> &rarr; $${s.value}
             </div>`;
@@ -1259,7 +1289,7 @@ document.getElementById('scoreLog').addEventListener('click', () => {
         const faceColor = s.clearFaces >= 3 ? COLORS.feedback.success : s.clearFaces >= 2 ? COLORS.feedback.warning : COLORS.feedback.error;
         html += `<div class="segment" style="border-left-color: ${COLORS.wvuGold};">
             Log ${i+1}: <strong>${s.nomLen}'</strong> @
-            ${s.scalingDia.toFixed(1)}" |
+            ${s.scalingDia.toFixed(1)}" | <strong>${s.volumeBF} bf</strong> |
             <span style="color:${faceColor}; font-weight:bold;">${s.clearFaces} clear faces</span>
             &rarr; <strong>${s.gradeInfo.grade}</strong> &rarr; $${s.value}
         </div>`;
