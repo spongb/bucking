@@ -8,16 +8,16 @@ A browser-based interactive log bucking training tool built for WVU Forestry edu
 
 ### User Workflow
 
-1. A stem is loaded from the dataset (real or synthetic) and displayed on a canvas. Species, total length, butt diameter, and top diameter are shown above the canvas.
+1. A stem is loaded from the dataset (real or synthetic) and displayed on a canvas. Species (with stem number in parenthesis), total length, butt diameter, and top diameter are shown above the canvas.
 2. The user clicks on the stem canvas to place cut marks. Each click snaps to the nearest 0.5-ft increment and adds a vertical cut line.
 3. Right-clicking a cut line removes it. The user may rotate the stem (keyboard or button) to inspect all four faces before committing cuts.
 4. When satisfied, the user clicks **Score Log**. The game evaluates each resulting segment using the AHMI grading matrix, displays grade, board feet (Doyle rule), and dollar value per segment, and sums a total value.
-5. The optimal solution is revealed: the game shows the DP-computed best set of cuts, the maximum achievable value, and a natural-language explanation of where the user's cuts diverged from optimal and why.
+5. The optimal solution is revealed: the game shows the DP-computed best set of cuts, the maximum achievable value, and a natural-language explanation of where the user's cuts diverged from optimal and why. Both user and optimal results display the board foot volume for each log.
 6. The user proceeds through five stems per session and receives a cumulative score.
 
 ### Log Diagram Features
 
-**Main canvas (log profile):** Draws a tapered trapezoid representing the stem in side view. Defects are rendered as colored bands at their precise start/end foot positions. The butt is on the left, top on the right. Cut lines appear as vertical lines with foot-position labels. Hover over any position to see a tooltip with the scaling diameter at that point (interpolated linearly between butt and top) and the foot position. The canvas resizes responsively to the browser window.
+**Main canvas (log profile):** Draws a tapered stem in side view, including a smooth graphical crook wherever sweep data is present. Defects are rendered as colored bands at their precise start/end foot positions. The butt is on the left, top on the right. Cut lines appear as vertical lines with foot-position labels. Hover over any position to see a tooltip with the scaling diameter at that point (interpolated linearly between butt and top) and the foot position. The canvas resizes responsively to the browser window.
 
 **Face defect map (face canvas):** A four-lane horizontal strip below the main canvas. Each lane represents one face (F1–F4), and defect blocks are drawn in the lane(s) of every face they affect. Rotating the log cycles which face is displayed on top — the lane labels shift to reflect the new orientation (triangle markers indicate Top, Right, Bottom, Left). This lets the user examine each face individually and plan cuts to keep defect-free faces intact.
 
@@ -70,11 +70,21 @@ Dollar value per board foot is loaded from `prices.json` at startup and falls ba
 
 **seam** — A longitudinal shake, wind shake, or internal crack running along the stem face. Assessed as a face penalty on 1–2 faces. Can occur anywhere on the stem. Common in ash (shake) and cherry (pitch seams).
 
-**sweep** — A gradual arc or bow in the stem, measured by its maximum deviation in inches (`widthIn`). Rather than a face penalty, sweep triggers a **diameter deduction**: the scaling diameter used for Doyle board-foot calculation is reduced by the sweep magnitude (in inches) for any log that spans the sweep zone. A severe sweep can drop a log from one Doyle tier to a lower one without blocking any face.
+**sweep** — A gradual arc or bow in the stem, measured by its maximum deviation in inches (`widthIn`). Rather than a face penalty, sweep triggers a **diameter deduction** following AHMI rules: the scaling diameter is reduced by `floor(Gross Sweep / 4)` inches (diameter rule, default) or `floor(Gross Sweep / 3)` inches (length rule alternative). Deductions smaller than 1 inch are ignored. This follows the AHMI Guidelines for the Scaling and Grading of Hardwood Logs. A severe sweep can drop a log from one Doyle tier to a lower one without blocking any face.
 
 **rot** — Decay, stain-rot, or fungal stain. Assessed as a face penalty on 1–3 faces. Has a 50% probability of being placed near the butt (0–4 ft), reflecting butt rot patterns common in Appalachian oaks. The remaining 50% can appear anywhere.
 
 **end_check** — A radial end split at the butt end of the stem. Affects all four faces visually (the full cross-section splits). Rather than a face penalty, an end check triggers a **length deduction**: the effective log length of any segment that starts at or within the check zone is shortened by the check's linear extent (in feet). This removes usable footage from the butt log, potentially dropping it from one standard length to the next shorter one.
+
+### Defects Not Currently Implemented
+
+The AHMI Guidelines define three additional defect types that involve volume adjustments (not face penalties) but are **not yet implemented** in this trainer:
+
+- **crook** — A lengthwise curve in the log. Would trigger a length deduction using AHMI rule: `floor(Crook Length / 3)` feet.
+- **interior defect** (holes, decay, doughty) — An internal void or decay zone. Would trigger a diameter deduction using AHMI rule: `floor(Defect Diameter / 3)` inches, with no deduction for defects < 3 inches.
+- **sector** (exterior defect) — An external defect affecting only a portion of the log's circumference. Would trigger a length deduction using AHMI rule: `(Sector % / 100) × Sector Length`, rounded up to the nearest foot.
+
+These defect types do not appear in the HW Buck real tree dataset (which was limited to 11 legacy codes) and are not yet generated by the synthetic tree generator. Future versions of the trainer may add these defects for more comprehensive AHMI grading practice.
 
 ---
 
@@ -92,7 +102,7 @@ The optimal bucking solution is computed by **dynamic programming on a 0.5-ft gr
 
 ### Defect Handling Inside DP
 
-- **Sweep deduction:** when evaluating a candidate segment, the solver checks whether any sweep defect overlaps the segment. If so, the segment's small-end diameter is reduced by the sweep's `widthIn` value before computing Doyle board feet and looking up grade.
+- **Sweep deduction:** when evaluating a candidate segment, the solver checks whether any sweep defect overlaps the segment. If so, the segment's small-end diameter is reduced by `floor(Gross Sweep / 4)` inches (using the AHMI diameter rule, configurable via `SWEEP_RULE` constant in `script.js`). Deductions that round down to zero are ignored per AHMI guidelines. This reduction is applied before computing Doyle board feet and looking up grade.
 - **End-check deduction:** when the segment starts at the butt (position 0) and an end check is present, the segment's effective length is shortened by the check extent before selecting the largest fitting standard length.
 - Both deductions interact with grade: a diameter deduction can drop Doyle footage enough to change grade tier, and a length deduction can prevent a 16-ft log from qualifying.
 
@@ -216,13 +226,46 @@ buckR's 1 cm grid on a 15-meter stem produces approximately 1,500 DP positions. 
 
 ---
 
+## Comparison: SumBuck
+
+[SumBuck](https://sumbuck.lumbermen.org/) is a web-based hardwood log-bucking training app from Lumbermen OS. It combines full-stem bucking practice, optimizer comparison, curated instruction stems, and a separate exercise for grading pre-cut logs. It supports eleven valuable hardwood species and allows users to enter their own market specifications and prices.
+
+### Comparison Table
+
+| Dimension | This Trainer | SumBuck |
+|---|---|---|
+| Primary purpose | Teach AHMI hardwood bucking decisions and defect interactions | Practice bucking, learn curated lessons, and practice calling log grades |
+| Optimization | Dynamic programming over 0.5-ft positions and standard log lengths | Interactive bucking exercise with an optimizer that maximizes total stem value |
+| Grading model | AHMI matrix based on Doyle board footage, SED, and clear faces | Market-oriented grading and pricing, including International 1/4 rule examples and user-entered specifications/prices |
+| Defect model | Explicit defect records for knots, seams, sweep, rot, forks, holes, and end checks | Defect and grading information is presented through the app's practice stems and grading exercises; its public workflow does not expose this project's `.shp`/`.def` model |
+| Stem representation | Reverse-engineered HW Buck profiles with separate `.shp` and `.def` files | Web-hosted practice stems and instruction logs |
+| Training feedback | Explains how cuts, defects, clear faces, and grade thresholds affect value | Provides optimizer comparison, curated instruction stems, and score-based practice workflows |
+| Platform | Local browser application with an included dataset | Hosted web application |
+| Market flexibility | Fixed AHMI grades and configured prices | Built-in markets plus custom specifications and prices |
+
+### Where SumBuck Is Stronger
+
+- **Broader practice workflow** — SumBuck separates three useful activities: bucking a full stem, stepping through instruction logs, and grading pre-cut logs.
+- **Market customization** — users can enter their own product specifications and prices, which is useful when practicing for a particular local market rather than one fixed grading matrix.
+- **Species breadth** — its public interface advertises eleven hardwood species, compared with this trainer's eight synthetic species plus four species represented in the real HW Buck data.
+- **Hosted access** — SumBuck can be used directly through a web browser without setting up this repository locally.
+
+### Where This Trainer Is Stronger
+
+- **Defect-to-grade transparency** — this trainer exposes the defect records and shows how each defect affects faces, diameter, usable length, or grade.
+- **AHMI-focused instruction** — the fixed grading model keeps the exercise centered on the relationship between small-end diameter, clear faces, standard log lengths, and value.
+- **Explanatory feedback** — the trainer describes why a user's cuts differ from the optimum and identifies the relevant defect or grade threshold.
+- **Open local dataset** — the stem profiles, defect records, parser, converter, and generated dataset are available for inspection and modification.
+
+---
+
 ## Files
 
 | File | Description |
 |---|---|
 | `index.html` | Main application page. Defines the canvas elements, controls panel (trim input, rotate button, score/next buttons), and segment results panel. Loads `style.css`, `script.js`, `prices.json`, and `hw-stems/trees.json` at startup. |
 | `style.css` | Responsive layout styles. WVU brand colors (blue/gold). Canvas container, segment card grid, legend, and tooltip styles. |
-| `script.js` | All game logic: tree dataset loading, log rendering (main canvas + face map canvas), cut placement and drag handling, AHMI grading (`scoreSegment`), sweep diameter deduction (`applySweepDeduction`), end-check length deduction, DP optimal solver (`computeOptimal`), explanation generation, session scoring, and rotation display. |
+| `script.js` | All game logic: tree dataset loading, log rendering (main canvas + face map canvas), cut placement and drag handling, AHMI grading (`scoreSegment`), AHMI sweep diameter deduction (`applySweepDeduction` with configurable `SWEEP_RULE`), end-check length deduction, DP optimal solver (`computeOptimal`), explanation generation, session scoring, and rotation display. Includes stem number display and board footage display in results. |
 | `hw-stems/trees.json` | Combined tree dataset. First ~150 entries are real trees from HW Buck (treeNum 1–150). Entries with treeNum >= 1001 are synthetic trees generated by `generate-synthetic.js`. Rebuilt by running either build script. |
 | `hw-stems/build-dataset.js` | Reads every `TREE*.shp` + `TREE*.def` pair from the `Shapes/` and `DEFECTS/` subdirectories, converts them to the game's defect model, and writes the real-tree portion of `trees.json`. Run once after obtaining the original HW Buck data files. |
 | `hw-stems/generate-synthetic.js` | Generates synthetic stems for 8 Appalachian species and appends them to `trees.json` starting at treeNum=1001. Idempotent — strips previously-generated synthetic trees before writing new ones. Safe to re-run. |

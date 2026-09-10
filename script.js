@@ -38,6 +38,11 @@ let PRICES = {
     'No. 1+': 1.50, 'No. 1': 1.20, 'No. 2+': 1.00, 'No. 2': 0.80, 'No. 3': 0.30
 };
 
+// ─── Sweep Deduction Rule ─────────────────────────────────────────────────
+// AHMI rule: Diameter rule = Gross Sweep / 4; Length rule = Gross Sweep / 3
+// Options: 'diameter' or 'length'. Deductions that round down to zero are ignored.
+const SWEEP_RULE = 'diameter';
+
 // ─── Real Tree Dataset ─────────────────────────────────────────────────────
 // Loaded from hw-stems/trees.json at startup. Falls back to random generation
 // if the file is unavailable (e.g. opening index.html directly without the server).
@@ -119,7 +124,7 @@ function loadLog(logObj) {
         ? logObj.species.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
         : 'Hardwood';
     document.getElementById('logDesc').textContent =
-        `${displaySpecies} — ${totalLength}ft  |  Butt: ${buttDia}"  |  Top: ${topDia}"`;
+        `${displaySpecies} (${logObj.treeNum}) — ${totalLength}ft  |  Butt: ${buttDia}"  |  Top: ${topDia}"`;
     document.getElementById('logCounter').textContent =
         `Stem ${currentLogIndex + 1} of ${TOTAL_LOGS}`;
     document.getElementById('nextLog').style.display   = 'none';
@@ -370,6 +375,22 @@ function formatFeetInches(decimalFeet) {
     return parts.length > 0 ? parts.join(' ') : `0"`;
 }
 
+function getCrookOffset(ft, pxPerIn) {
+    let offset = 0;
+    currentDefects.forEach(d => {
+        if (d.type !== 'sweep' || ft < d.startFt || ft > d.endFt) return;
+        const span = Math.max(0.01, d.endFt - d.startFt);
+        const progress = (ft - d.startFt) / span;
+        const profile = Math.sin(progress * Math.PI);
+        const face = d.facesAffected && d.facesAffected.length > 0 ? d.facesAffected[0] : 0;
+        const visualFace = (face - logRotation + 4) % 4;
+        const direction = FACE_Y_FRAC[visualFace] / 0.62;
+        const magnitude = d.widthIn > 0 ? d.widthIn : 1;
+        offset += direction * magnitude * pxPerIn * profile;
+    });
+    return offset;
+}
+
 function drawLogGraphic(context, can, cutsList) {
     context.clearRect(0, 0, can.width, can.height);
     const scale   = getScale(can);
@@ -383,7 +404,7 @@ function drawLogGraphic(context, can, cutsList) {
         const frac     = ft / totalLength;
         const diaIn    = buttDia - (buttDia - topDia) * frac;
         const radiusPx = (diaIn / 2) * pxPerIn;
-        points.push({ x: ft * scale, radiusPx });
+        points.push({ x: ft * scale, radiusPx, centerOffset: getCrookOffset(ft, pxPerIn) });
     }
 
     // Per-face defect colors (used across drawing steps)
@@ -407,11 +428,11 @@ function drawLogGraphic(context, can, cutsList) {
         context.beginPath();
         for (let i = 0; i < points.length; i++) {
             const p = points[i];
-            if (i === 0) context.moveTo(p.x, yCenter + t * p.radiusPx);
-            else         context.lineTo(p.x, yCenter + t * p.radiusPx);
+            if (i === 0) context.moveTo(p.x, yCenter + p.centerOffset + t * p.radiusPx);
+            else         context.lineTo(p.x, yCenter + p.centerOffset + t * p.radiusPx);
         }
         for (let i = points.length - 1; i >= 0; i--) {
-            context.lineTo(points[i].x, yCenter + b * points[i].radiusPx);
+            context.lineTo(points[i].x, yCenter + points[i].centerOffset + b * points[i].radiusPx);
         }
         context.closePath();
         context.fillStyle = bandShade[vf];
@@ -422,11 +443,11 @@ function drawLogGraphic(context, can, cutsList) {
             context.beginPath();
             for (let i = 0; i < points.length; i++) {
                 const p = points[i];
-                if (i === 0) context.moveTo(p.x, yCenter + t * p.radiusPx);
-                else         context.lineTo(p.x, yCenter + t * p.radiusPx);
+                if (i === 0) context.moveTo(p.x, yCenter + p.centerOffset + t * p.radiusPx);
+                else         context.lineTo(p.x, yCenter + p.centerOffset + t * p.radiusPx);
             }
             for (let i = points.length - 1; i >= 0; i--) {
-                context.lineTo(points[i].x, yCenter + b * points[i].radiusPx);
+                context.lineTo(points[i].x, yCenter + points[i].centerOffset + b * points[i].radiusPx);
             }
             context.closePath();
             context.globalAlpha = 0.15;
@@ -442,8 +463,8 @@ function drawLogGraphic(context, can, cutsList) {
         context.beginPath();
         for (let i = 0; i < points.length; i++) {
             const p = points[i];
-            if (i === 0) context.moveTo(p.x, yCenter + bandBotFrac[vf] * p.radiusPx);
-            else         context.lineTo(p.x, yCenter + bandBotFrac[vf] * p.radiusPx);
+            if (i === 0) context.moveTo(p.x, yCenter + p.centerOffset + bandBotFrac[vf] * p.radiusPx);
+            else         context.lineTo(p.x, yCenter + p.centerOffset + bandBotFrac[vf] * p.radiusPx);
         }
         context.strokeStyle = 'rgba(0,0,0,0.22)';
         context.lineWidth   = Math.max(0.5, 1 * Hs);
@@ -454,11 +475,11 @@ function drawLogGraphic(context, can, cutsList) {
     context.beginPath();
     for (let i = 0; i < points.length; i++) {
         const p = points[i];
-        if (i === 0) context.moveTo(p.x, yCenter - p.radiusPx);
-        else         context.lineTo(p.x, yCenter - p.radiusPx);
+        if (i === 0) context.moveTo(p.x, yCenter + p.centerOffset - p.radiusPx);
+        else         context.lineTo(p.x, yCenter + p.centerOffset - p.radiusPx);
     }
     for (let i = points.length - 1; i >= 0; i--) {
-        context.lineTo(points[i].x, yCenter - points[i].radiusPx + Math.max(3, 5 * Hs));
+        context.lineTo(points[i].x, yCenter + points[i].centerOffset - points[i].radiusPx + Math.max(3, 5 * Hs));
     }
     context.closePath();
     const hlGrad = context.createLinearGradient(0, yCenter - points[0].radiusPx, 0, yCenter);
@@ -476,15 +497,15 @@ function drawLogGraphic(context, can, cutsList) {
     context.beginPath();
     for (let i = 0; i < points.length; i++) {
         const p = points[i];
-        if (i === 0) context.moveTo(p.x, yCenter - p.radiusPx);
-        else         context.lineTo(p.x, yCenter - p.radiusPx);
+        if (i === 0) context.moveTo(p.x, yCenter + p.centerOffset - p.radiusPx);
+        else         context.lineTo(p.x, yCenter + p.centerOffset - p.radiusPx);
     }
     context.stroke();
     context.beginPath();
     for (let i = 0; i < points.length; i++) {
         const p = points[i];
-        if (i === 0) context.moveTo(p.x, yCenter + p.radiusPx);
-        else         context.lineTo(p.x, yCenter + p.radiusPx);
+        if (i === 0) context.moveTo(p.x, yCenter + p.centerOffset + p.radiusPx);
+        else         context.lineTo(p.x, yCenter + p.centerOffset + p.radiusPx);
     }
     context.stroke();
 
@@ -667,12 +688,13 @@ function drawDefects(context, defects, scale, yCenter, pxPerIn) {
         const frac  = midFt / totalLength;
         const dia   = buttDia - (buttDia - topDia) * frac;
         const r     = (dia / 2) * pxPerIn;
+        const centerOffset = getCrookOffset(midFt, pxPerIn);
 
         context.globalAlpha = 0.78;
 
         d.facesAffected.forEach(face => {
             const vf = (face - logRotation + 4) % 4; // visual position for this face
-            const fy = yCenter + FACE_Y_FRAC[vf] * r;
+            const fy = yCenter + centerOffset + FACE_Y_FRAC[vf] * r;
             const fh = FACE_BAND_H * r;
 
             if (d.type === 'knot_cluster') {
@@ -708,9 +730,9 @@ function drawDefects(context, defects, scale, yCenter, pxPerIn) {
         context.textAlign   = 'center';
         context.strokeStyle = '#fff';
         context.lineWidth   = Math.max(1, 2 * Hs);
-        context.strokeText(d.label, (x1 + x2) / 2, yCenter - r - 6 * Hs);
+        context.strokeText(d.label, (x1 + x2) / 2, yCenter + centerOffset - r - 6 * Hs);
         context.fillStyle   = d.color;
-        context.fillText(d.label, (x1 + x2) / 2, yCenter - r - 6 * Hs);
+        context.fillText(d.label, (x1 + x2) / 2, yCenter + centerOffset - r - 6 * Hs);
     });
 }
 
@@ -853,11 +875,36 @@ document.getElementById('rollDown').addEventListener('click', () => {
 // We use the actual measured sweep magnitude (widthIn, stored in inches from the
 // .def file) as the scaling diameter deduction. Falls back to 1" if widthIn is
 // absent (e.g. randomly generated logs that don't carry the real measurement).
-function applySweepDeduction(baseDia, startFt, endFt, defects) {
+/**
+ * Apply AHMI sweep deduction to scaling diameter.
+ * AHMI Rules: Diameter rule = floor(Gross Sweep / 4); Length rule = floor(Gross Sweep / 3)
+ * Deductions that round down to zero are ignored.
+ * @param {number} baseDia - Base scaling diameter in inches
+ * @param {number} startFt - Start of log segment in feet
+ * @param {number} endFt - End of log segment in feet
+ * @param {array} defects - Array of defect objects
+ * @param {string} rule - 'diameter' or 'length' (uses SWEEP_RULE if not provided)
+ * @returns {number} Adjusted diameter, minimum 6 inches
+ */
+function applySweepDeduction(baseDia, startFt, endFt, defects, rule = SWEEP_RULE) {
     let dia = baseDia;
     defects.forEach(d => {
         if (d.type === 'sweep' && d.startFt < endFt && d.endFt > startFt) {
-            dia -= (d.widthIn > 0) ? d.widthIn : 1;
+            const grossSweep = d.widthIn > 0 ? d.widthIn : 0;
+            let deduction = 0;
+            
+            if (rule === 'diameter') {
+                // AHMI diameter rule: deduction = floor(Gross Sweep / 4)
+                deduction = Math.floor(grossSweep / 4);
+            } else if (rule === 'length') {
+                // AHMI length rule: deduction = floor(Gross Sweep / 3)
+                deduction = Math.floor(grossSweep / 3);
+            }
+            
+            // Only apply deduction if it's >= 1
+            if (deduction > 0) {
+                dia -= deduction;
+            }
         }
     });
     return Math.max(6, dia);
@@ -1233,7 +1280,7 @@ document.getElementById('scoreLog').addEventListener('click', () => {
             const faceColor = s.clearFaces >= 3 ? COLORS.feedback.success : s.clearFaces >= 2 ? COLORS.feedback.warning : COLORS.feedback.error;
             html += `<div class="segment" style="border-left-color: ${COLORS.feedback.error};">
                 Log ${i+1}: <strong>${s.nomLen}'</strong> (${formatFeetInches(s.physicalLen)} piece) @
-                ${s.scalingDia.toFixed(1)}" |
+                ${s.scalingDia.toFixed(1)}" | <strong>${s.volumeBF} bf</strong> |
                 <span style="color:${faceColor}; font-weight:bold;">${s.clearFaces} clear faces</span>
                 &rarr; <strong>${s.gradeInfo.grade}</strong> &rarr; $${s.value}
             </div>`;
@@ -1251,7 +1298,7 @@ document.getElementById('scoreLog').addEventListener('click', () => {
         const faceColor = s.clearFaces >= 3 ? COLORS.feedback.success : s.clearFaces >= 2 ? COLORS.feedback.warning : COLORS.feedback.error;
         html += `<div class="segment" style="border-left-color: ${COLORS.wvuGold};">
             Log ${i+1}: <strong>${s.nomLen}'</strong> @
-            ${s.scalingDia.toFixed(1)}" |
+            ${s.scalingDia.toFixed(1)}" | <strong>${s.volumeBF} bf</strong> |
             <span style="color:${faceColor}; font-weight:bold;">${s.clearFaces} clear faces</span>
             &rarr; <strong>${s.gradeInfo.grade}</strong> &rarr; $${s.value}
         </div>`;
