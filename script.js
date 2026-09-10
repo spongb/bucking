@@ -128,6 +128,7 @@ function loadLog(logObj) {
     document.getElementById('logCounter').textContent =
         `Stem ${currentLogIndex + 1} of ${TOTAL_LOGS}`;
     document.getElementById('nextLog').style.display   = 'none';
+    document.getElementById('nextLog').textContent     = 'Next Stem →';
     document.getElementById('scoreLog').style.display  = 'inline-block';
     document.getElementById('segments').innerHTML      = '';
     document.getElementById('finalScore').style.display = 'none';
@@ -1308,11 +1309,10 @@ document.getElementById('scoreLog').addEventListener('click', () => {
     document.getElementById('segments').innerHTML = html;
     document.getElementById('scoreLog').style.display = 'none';
 
-    if (currentLogIndex < TOTAL_LOGS - 1) {
-        document.getElementById('nextLog').style.display = 'inline-block';
-    } else {
-        showFinalScore();
-    }
+    const isLastStem = currentLogIndex === TOTAL_LOGS - 1;
+    const nextLogButton = document.getElementById('nextLog');
+    nextLogButton.textContent = isLastStem ? 'View Final Score →' : 'Next Stem →';
+    nextLogButton.style.display = 'inline-block';
 });
 
 
@@ -1324,8 +1324,12 @@ function updateRunningScore() {
 
 // ─── Next Log ──────────────────────────────────────────────────────────────
 document.getElementById('nextLog').addEventListener('click', () => {
-    currentLogIndex++;
-    loadLog(pickLog());
+    if (currentLogIndex === TOTAL_LOGS - 1) {
+        showFinalScore();
+    } else {
+        currentLogIndex++;
+        loadLog(pickLog());
+    }
 });
 
 // ─── Attempt Logging (server-side CSV) ────────────────────────────────────
