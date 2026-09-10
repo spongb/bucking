@@ -907,52 +907,60 @@ function getGradeAndPrice(dia, clearFaces) {
 }
 
 // ─── Score Segments ────────────────────────────────────────────────────────
-function scoreSegments(cutList, defects) {
+// This is the single source of truth for valuing a physical piece of stem.
+// Both the player-facing display and the optimizer use it so an optimal plan's
+// reported total always equals the values shown for its individual logs.
+function scoreSegment(startFt, endFt, defects) {
     const trim = getTrim();
     const standardLengths = [16, 14, 12, 10, 8];
+    const physicalLen = endFt - startFt;
+
+    // Bole-end checks consume usable log length — deduct their span from maxNomLen.
+    let ecDeduction = 0;
+    defects.forEach(d => {
+        if (d.type === 'end_check' && d.startFt < endFt && d.endFt > startFt)
+            ecDeduction += Math.min(d.endFt, endFt) - Math.max(d.startFt, startFt);
+    });
+    const maxNomLen = physicalLen - trim - ecDeduction;
+
+    let nomLen = 0;
+    for (const L of standardLengths) {
+        if (L <= maxNomLen + 0.01) {
+            nomLen = L;
+            break;
+        }
+    }
+
+    if (nomLen > 0) {
+        // Scaling at the small end of the nominal log
+        const scalingFt  = startFt + nomLen;
+        const frac       = scalingFt / totalLength;
+        const scalingDia = buttDia - (buttDia - topDia) * frac;
+
+        const effectiveDia = applySweepDeduction(scalingDia, startFt, startFt + nomLen, defects);
+
+        const clearFaces = getClearFaces(startFt, startFt + nomLen, defects);
+        const volumeBF   = doyleVolume(effectiveDia, nomLen);
+        const gradeInfo  = getGradeAndPrice(effectiveDia, clearFaces);
+        const value      = Math.round(volumeBF * gradeInfo.pricePerBF);
+
+        return { startFt, endFt, physicalLen, nomLen, scalingDia, clearFaces, volumeBF, gradeInfo, value };
+    }
+
+    return { startFt, endFt, physicalLen, nomLen: 0, scalingDia: 0, clearFaces: 0, volumeBF: 0,
+             gradeInfo: { grade: 'Pulp/Waste', pricePerBF: 0 }, value: 0 };
+}
+
+function scoreSegments(cutList, defects) {
     let totalValue = 0;
     const segs = [];
     const allPoints = [...cutList, totalLength];
     let prevFt = 0;
 
     allPoints.forEach(endFt => {
-        const physicalLen = endFt - prevFt;
-
-        // Bole-end checks consume usable log length — deduct their span from maxNomLen
-        let ecDeduction = 0;
-        defects.forEach(d => {
-            if (d.type === 'end_check' && d.startFt < endFt && d.endFt > prevFt)
-                ecDeduction += Math.min(d.endFt, endFt) - Math.max(d.startFt, prevFt);
-        });
-        const maxNomLen = physicalLen - trim - ecDeduction;
-        
-        let nomLen = 0;
-        for (const L of standardLengths) {
-            if (L <= maxNomLen + 0.01) {
-                nomLen = L;
-                break;
-            }
-        }
-
-        if (nomLen > 0) {
-            // Scaling at the small end of the nominal log
-            const scalingFt  = prevFt + nomLen;
-            const frac       = scalingFt / totalLength;
-            const scalingDia = buttDia - (buttDia - topDia) * frac;
-
-            const effectiveDia = applySweepDeduction(scalingDia, prevFt, prevFt + nomLen, defects);
-
-            const clearFaces = getClearFaces(prevFt, prevFt + nomLen, defects);
-            const volumeBF   = doyleVolume(effectiveDia, nomLen);
-            const gradeInfo  = getGradeAndPrice(effectiveDia, clearFaces);
-            const value      = Math.round(volumeBF * gradeInfo.pricePerBF);
-
-            totalValue += value;
-            segs.push({ startFt: prevFt, endFt, physicalLen, nomLen, scalingDia, clearFaces, volumeBF, gradeInfo, value });
-        } else {
-            segs.push({ startFt: prevFt, endFt, physicalLen, nomLen: 0, scalingDia: 0, clearFaces: 0, volumeBF: 0,
-                        gradeInfo: { grade: 'Pulp/Waste', pricePerBF: 0 }, value: 0 });
-        }
+        const segment = scoreSegment(prevFt, endFt, defects);
+        totalValue += segment.value;
+        segs.push(segment);
         prevFt = endFt;
     });
 
@@ -989,7 +997,9 @@ function updateSegments() {
 function computeOptimal() {
     const trim           = getTrim();
     const allowedLengths = [8, 10, 12, 14, 16];
-    const step           = 0.5;
+    // One-inch states preserve the 4-inch trim exactly and make the returned
+    // cut positions practical to score and display without six-inch rounding.
+    const step           = 1 / 12;
     const steps          = Math.round(totalLength / step);
     const dp             = new Array(steps + 1).fill(0);
     const choice         = new Array(steps + 1).fill(null);
@@ -1007,18 +1017,15 @@ function computeOptimal() {
             const cutFt   = startFt + nomLen + trim + ecDeduction;
             if (cutFt > totalLength + 0.01) continue;
             const endStep = Math.min(Math.round(cutFt / step), steps);
-            
-            // Optimal scaling diameter at the small end of the nominal log
-            const scalingFt = startFt + nomLen;
-            const frac      = scalingFt / totalLength;
-            let dia         = buttDia - (buttDia - topDia) * frac;
+            const endFt   = endStep * step;
+            if (endStep <= i) continue;
 
-            dia = applySweepDeduction(dia, startFt, startFt + nomLen, currentDefects);
-
-            const faces     = getClearFaces(startFt, startFt + nomLen, currentDefects);
-            const vol       = doyleVolume(dia, nomLen);
-            const grade     = getGradeAndPrice(dia, faces);
-            const val       = Math.round(vol * grade.pricePerBF) + (dp[endStep] || 0);
+            // Score the grid-aligned physical piece with the same function used
+            // by the displayed bucking plan.  Do not value the unrounded,
+            // theoretical endpoint: that was the source of DP/display gaps.
+            const segment = scoreSegment(startFt, endFt, currentDefects);
+            if (segment.nomLen === 0) continue;
+            const val = segment.value + dp[endStep];
             
             if (val > dp[i]) { dp[i] = val; choice[i] = endStep; }
         }
@@ -1185,9 +1192,11 @@ function generateBuckingExplanation(userSegs, optSegs, defects) {
 
 // ─── Score This Log ────────────────────────────────────────────────────────
 document.getElementById('scoreLog').addEventListener('click', () => {
-    const { optCuts, optValue }  = computeOptimal();
+    const { optCuts }            = computeOptimal();
     const { totalValue, segs }   = scoreSegments(cuts, currentDefects);
-    const { segs: optSegs }      = scoreSegments(optCuts, currentDefects);
+    // Re-score the reconstructed cuts so every displayed optimal total is the
+    // sum of the exact plan shown below it.
+    const { totalValue: optValue, segs: optSegs } = scoreSegments(optCuts, currentDefects);
     const trim                   = getTrim();
     const pct                    = optValue > 0 ? Math.round((totalValue / optValue) * 100) : 0;
     const scoreColor             = pct >= 90 ? COLORS.feedback.success : pct >= 70 ? COLORS.feedback.warning : COLORS.feedback.error;
