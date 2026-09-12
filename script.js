@@ -43,11 +43,121 @@ let PRICES = {
 // Options: 'diameter' or 'length'. Deductions that round down to zero are ignored.
 const SWEEP_RULE = 'diameter';
 
-// ─── Real Tree Dataset ─────────────────────────────────────────────────────
-// Loaded from hw-stems/trees.json at startup. Falls back to random generation
-// if the file is unavailable (e.g. opening index.html directly without the server).
+// ─── Stem Datasets ──────────────────────────────────────────────────────────
+// HW Buck and synthetic stems share the game schema. Mill-study stems are
+// normalized below because their source file retains the reconstruction model.
 let realTrees = [];
+let selectedDataset = 'millstudy';
 let usedTreeIndices = new Set(); // avoid repeating trees within a session
+
+function normalizeMillStudyStem(stem) {
+    const defects = [];
+    const shapeDefects = stem.meta?.shapeDefects || [];
+    shapeDefects.forEach(defect => {
+        const startFt = defect.startHeightFt;
+        const endFt = Math.min(stem.length, startFt + defect.lengthFt);
+        if (endFt <= startFt) return;
+        defects.push({
+            type: 'sweep',
+            label: defect.type === 'crook' ? 'Crook' : 'Sweep',
+            color: defect.type === 'crook' ? COLORS.defect.seam : COLORS.defect.sweep,
+            facePenalty: 1,
+            startFt,
+            endFt,
+            widthIn: defect.displacementIn,
+            facesAffected: [0],
+        });
+    });
+
+    const qualityDefects = stem.meta?.qualityDefects || [];
+    qualityDefects.forEach(defect => {
+        const startFt = defect.startHeightFt;
+        const endFt = Math.min(stem.length, startFt + defect.lengthFt);
+        if (endFt <= startFt) return;
+        defects.push({
+            type: 'seam',
+            label: defect.type[0].toUpperCase() + defect.type.slice(1),
+            color: COLORS.defect.seam,
+            facePenalty: 1,
+            startFt,
+            endFt,
+            facesAffected: [0, 1, 2, 3],
+        });
+    });
+
+    const millDefectProjections = stem.meta?.millDefectProjections || [];
+    millDefectProjections.forEach(projection => {
+        const startFt = Math.max(0, projection.segStartHeightFt);
+        const endFt = Math.min(stem.length, projection.segEndHeightFt);
+        if (endFt <= startFt) return;
+
+        const projectedSides = projection.projectedSides || projection.sides || {};
+        Object.entries(projectedSides).forEach(([sideName, sideDefects]) => {
+            const face = Number(sideName.replace('side', '')) - 1;
+            if (face < 0 || face > 3) return;
+
+            const zones = sideDefects?.mergedZones || [];
+            if (zones.length > 0) {
+                zones.forEach(zone => {
+                    const zoneStartFt = startFt + Math.max(0, Number(zone.zoneStartIn) || 0) / 12;
+                    const zoneEndFt = startFt + Math.min(
+                        (Number(projection.segmentLengthFt) || (endFt - startFt)) * 12,
+                        Number(zone.zoneEndIn) || 0,
+                    ) / 12;
+                    if (zoneEndFt <= zoneStartFt) return;
+                    defects.push({
+                        type: 'seam',
+                        label: `Mill defect${zone.memberDefectCount > 1 ? 's' : ''} (${zone.memberDefectCount || 1})`,
+                        color: COLORS.defect.seam,
+                        facePenalty: 1,
+                        startFt: zoneStartFt,
+                        endFt: Math.min(endFt, zoneEndFt),
+                        facesAffected: [face],
+                    });
+                });
+                return;
+            }
+
+            // Compatibility with the previous count-only projection schema.
+            const counts = sideDefects?.defectCounts || sideDefects || {};
+            const total = ['le3in', '3to6in', 'gt6in']
+                .map(size => Number(counts[size]) || 0)
+                .reduce((sum, count) => sum + count, 0);
+            if (total > 0) {
+                defects.push({
+                    type: 'seam',
+                    label: `Mill defects (${total})`,
+                    color: COLORS.defect.seam,
+                    facePenalty: 1,
+                    startFt,
+                    endFt,
+                    facesAffected: [face],
+                });
+            }
+        });
+    });
+
+    return {
+        treeNum: stem.stemId,
+        species: stem.species,
+        stemType: stem.stemType,
+        length: stem.length,
+        butt: stem.butt,
+        top: stem.top ?? stem.profile?.[stem.profile.length - 1]?.diameterIn ?? stem.butt,
+        defects,
+    };
+}
+
+function getDatasetTrees(allTrees, millStudy) {
+    if (selectedDataset === 'millstudy') return millStudy.stems.map(normalizeMillStudyStem);
+    const isSynthetic = selectedDataset === 'synthetic';
+    return allTrees.filter(tree => (tree.treeNum >= 1001) === isSynthetic);
+}
+
+function updateDatasetStatus() {
+    const status = document.getElementById('datasetStatus');
+    if (status) status.textContent = `${realTrees.length} stems available`;
+}
 
 function pickLog() {
     if (realTrees.length === 0) return generateLog(); // fallback
@@ -124,7 +234,7 @@ function loadLog(logObj) {
         ? logObj.species.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
         : 'Hardwood';
     document.getElementById('logDesc').textContent =
-        `${displaySpecies} (${logObj.treeNum}) — ${totalLength}ft  |  Butt: ${buttDia}"  |  Top: ${topDia}"`;
+        `${displaySpecies} (${logObj.treeNum})${logObj.stemType ? ` — ${logObj.stemType}` : ''} — ${totalLength}ft  |  Butt: ${buttDia}"  |  Top: ${topDia}"`;
     document.getElementById('logCounter').textContent =
         `Stem ${currentLogIndex + 1} of ${TOTAL_LOGS}`;
     document.getElementById('nextLog').style.display   = 'none';
@@ -1476,6 +1586,19 @@ document.getElementById('reset').addEventListener('click', () => {
 // ─── Trim Live Update ──────────────────────────────────────────────────────
 document.getElementById('trimInput').addEventListener('change', drawLog);
 
+document.getElementById('datasetSelect').addEventListener('change', event => {
+    selectedDataset = event.target.value;
+    const allTrees = window.allStemTrees || [];
+    const millStudy = window.millStudyData || { stems: [] };
+    realTrees = getDatasetTrees(allTrees, millStudy);
+    usedTreeIndices.clear();
+    currentLogIndex = 0;
+    logScores = [];
+    document.getElementById('gameScore').textContent = 'Running Score: 0%';
+    updateDatasetStatus();
+    loadLog(pickLog());
+});
+
 // ─── Build Grading Reference Table ─────────────────────────────────────────
 (function buildGradingTable() {
     const gradeColors = {
@@ -1512,12 +1635,16 @@ document.getElementById('trimInput').addEventListener('change', drawLog);
 })();
 
 // ─── Start Game ────────────────────────────────────────────────────────────
-// Load prices and tree data in parallel; start the game when both settle.
+// Load prices and all selectable stem datasets in parallel.
 Promise.allSettled([
     fetch('prices.json').then(r => r.json()),
     fetch('hw-stems/trees.json').then(r => r.json()),
-]).then(([priceResult, treeResult]) => {
+    fetch('hw-stems/Millstudy_Stems.json').then(r => r.json()),
+]).then(([priceResult, treeResult, millStudyResult]) => {
     if (priceResult.status === 'fulfilled') PRICES = priceResult.value;
-    if (treeResult.status  === 'fulfilled') realTrees = treeResult.value;
+    window.allStemTrees = treeResult.status === 'fulfilled' ? treeResult.value : [];
+    window.millStudyData = millStudyResult.status === 'fulfilled' ? millStudyResult.value : { stems: [] };
+    realTrees = getDatasetTrees(window.allStemTrees, window.millStudyData);
+    updateDatasetStatus();
     loadLog(pickLog());
 });

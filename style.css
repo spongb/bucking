@@ -70,6 +70,33 @@ h1 {
     padding-bottom: 8px;
 }
 
+#datasetPicker {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin: 12px 0 16px;
+    padding: 10px 14px;
+    background: var(--wvu-cloud);
+    border: 1px solid var(--wvu-fog);
+    border-radius: var(--border-radius);
+    text-align: left;
+}
+
+#datasetSelect {
+    font: inherit;
+    padding: 6px 28px 6px 8px;
+    border: 1px solid var(--wvu-fog);
+    border-radius: 4px;
+    color: var(--wvu-blue);
+    background: #fff;
+}
+
+#datasetStatus {
+    color: var(--wvu-slate);
+    font-size: 12px;
+}
+
 button {
     font-family: var(--font-body);
     font-weight: bold;
@@ -119,6 +146,10 @@ button:active {
     }
     h1 {
         font-size: 22px;
+    }
+    #datasetPicker {
+        align-items: stretch;
+        flex-direction: column;
     }
     button {
         padding: 9px 15px;

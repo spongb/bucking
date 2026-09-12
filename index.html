@@ -10,6 +10,16 @@
     <div class="container">
         <h1>🪵 Bucking Trainer</h1>
 
+        <div id="datasetPicker" aria-label="Stem dataset">
+            <label for="datasetSelect"><strong>Stem dataset</strong></label>
+            <select id="datasetSelect">
+                <option value="hwbuck">HW Buck stems</option>
+                <option value="synthetic">Synthetic stems</option>
+                <option value="millstudy" selected>Mill study stems</option>
+            </select>
+            <span id="datasetStatus" role="status"></span>
+        </div>
+
         <div id="gameHeader">
             <span id="logCounter">Stem 1 of 5</span>
             <span id="gameScore">Running Score: 0%</span>
