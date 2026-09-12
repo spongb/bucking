@@ -3,6 +3,7 @@ const TOTAL_LOGS = 5;
 let currentLogIndex = 0;
 let logScores = [];
 let cuts = [];
+let pieceProduct = []; // per-piece override: 'sawlog' (default), 'peeler', or 'scrag'
 let dragIdx = -1;
 let totalLength, buttDia, topDia, currentTree;
 let currentDefects = [];
@@ -28,6 +29,7 @@ const COLORS = {
         seam: '#444444',
         sweep: '#DAA520',
         rot: '#8B0000',
+        millDefect: '#E91E8C',
     }
 };
 
@@ -37,6 +39,124 @@ let PRICES = {
     'Prime': 2.50, 'Select+': 2.10, 'Select': 1.80,
     'No. 1+': 1.50, 'No. 1': 1.20, 'No. 2+': 1.00, 'No. 2': 0.80, 'No. 3': 0.30
 };
+
+// ─── Weight-Priced Products (Peeler / Scrag) ──────────────────────────────
+// WV northern-hardwood market, 2026: yellow-poplar dominates the peeler
+// market; scrag is the mixed-hardwood #3/pallet market. Both are sold by the
+// green ton, so value comes from cubic volume x species green density, not
+// from Doyle BF (Doyle drastically underscales small/low-grade logs).
+const PRODUCT_SPECS = {
+    peeler: {
+        label: 'Peeler',
+        // TESTING VALUE — real market avg is $107/ton ($85-$130, WV yellow-poplar
+        // veneer, KDF/AHC Aug 2026); that price never beats a sawlog grade at the
+        // volumes a single piece weighs, so the DP would never pick it. Bumped
+        // here so peeler bucking choices are actually exercisable/testable in
+        // the optimizer. Revert to 107 once real DP behavior isn't needed.
+        pricePerTon: 500,
+        eligibleSpecies: ['YELLOW_POPLAR'],
+        minSED: 12, maxSED: null,
+        notes: 'Yellow-poplar only. Straight & round, pith centered, no sweep/rot/splits, min SED 12"-14".'
+    },
+    scrag: {
+        label: 'Scrag',
+        pricePerTon: 30, // avg of $20-$40/ton, WV/PA #3-pallet mixed hardwood
+        eligibleSpecies: null, // any species — mixed-hardwood market
+        minSED: 6, maxSED: 14,
+        notes: '#3/pallet grade. Sound wood only (no rot/metal); knots & moderate sweep tolerated.'
+    }
+};
+
+// Green density (lb per cubic ft) by canonical species — per USDA Forest
+// Products Lab Wood Handbook Table 4-7 (weight of green wood, moisture
+// included). Used to convert log cubic volume to weight for peeler/scrag
+// pricing. Yellow-poplar in particular carries very high green moisture
+// content, so its green weight (38) is well above its oven-dry weight
+// (~26-28, which is what's sometimes quoted loosely as "density").
+const SPECIES_DENSITY = {
+    YELLOW_POPLAR: 38, RED_OAK: 62, WHITE_OAK: 64, BLACK_OAK: 56, SCARLET_OAK: 58,
+    CHESTNUT_OAK: 54, HARD_MAPLE: 56, SUGAR_MAPLE: 56, RED_MAPLE: 50, ASH: 48,
+    BLACK_CHERRY: 45, BLACK_WALNUT: 58, BASSWOOD: 47, HICKORY: 66, BEECH: 58,
+    BIRCH: 57, YELLOW_BIRCH: 57, LOCUST: 65, CUCUMBER: 44, DEFAULT: 50
+};
+
+// Friendly display name by canonical species key — used anywhere a species
+// is shown to the user, so a dataset's raw code ("YP") or all-caps name
+// ("YELLOW POPLAR") both render the same way ("Yellow Poplar").
+const SPECIES_DISPLAY_NAME = {
+    YELLOW_POPLAR: 'Yellow Poplar', RED_OAK: 'Red Oak', WHITE_OAK: 'White Oak',
+    BLACK_OAK: 'Black Oak', SCARLET_OAK: 'Scarlet Oak', CHESTNUT_OAK: 'Chestnut Oak',
+    HARD_MAPLE: 'Hard Maple', SUGAR_MAPLE: 'Sugar Maple', RED_MAPLE: 'Red Maple',
+    ASH: 'Ash', BLACK_CHERRY: 'Black Cherry', BLACK_WALNUT: 'Black Walnut',
+    BASSWOOD: 'Basswood', HICKORY: 'Hickory', BEECH: 'Beech', BIRCH: 'Birch',
+    YELLOW_BIRCH: 'Yellow Birch', LOCUST: 'Black Locust', CUCUMBER: 'Cucumber Tree'
+};
+
+// Maps both dataset species codes (e.g. "YP") and full names (e.g. "YELLOW POPLAR")
+// to one canonical key used by SPECIES_DENSITY / SPECIES_DISPLAY_NAME / PRODUCT_SPECS.eligibleSpecies.
+const SPECIES_CODE_MAP = {
+    YP: 'YELLOW_POPLAR', 'YELLOW POPLAR': 'YELLOW_POPLAR', POPLAR: 'YELLOW_POPLAR',
+    RO: 'RED_OAK', 'RED OAK': 'RED_OAK',
+    WO: 'WHITE_OAK', 'WHITE OAK': 'WHITE_OAK',
+    BO: 'BLACK_OAK', 'BLACK OAK': 'BLACK_OAK',
+    SO: 'SCARLET_OAK', 'SCARLET OAK': 'SCARLET_OAK',
+    CO: 'CHESTNUT_OAK', 'CHESTNUT OAK': 'CHESTNUT_OAK',
+    HM: 'HARD_MAPLE', 'HARD MAPLE': 'HARD_MAPLE',
+    SM: 'SUGAR_MAPLE', 'SUGAR MAPLE': 'SUGAR_MAPLE',
+    RM: 'RED_MAPLE', 'RED MAPLE': 'RED_MAPLE',
+    WA: 'ASH', 'WHITE ASH': 'ASH', ASH: 'ASH',
+    CH: 'BLACK_CHERRY', 'BLACK CHERRY': 'BLACK_CHERRY', CHERRY: 'BLACK_CHERRY',
+    WN: 'BLACK_WALNUT', 'BLACK WALNUT': 'BLACK_WALNUT',
+    BASS: 'BASSWOOD', BASSWOOD: 'BASSWOOD',
+    HK: 'HICKORY', 'SHAGBARK HICKORY': 'HICKORY', HICKORY: 'HICKORY',
+    BEECH: 'BEECH',
+    BIRCH: 'BIRCH', 'YELLOW BIRCH': 'YELLOW_BIRCH',
+    LOCUST: 'LOCUST', CUC: 'CUCUMBER', CUCUMBER: 'CUCUMBER'
+};
+
+function normalizeSpecies(raw) {
+    if (!raw) return null;
+    const key = String(raw).trim().toUpperCase();
+    return SPECIES_CODE_MAP[key] || null;
+}
+
+// Canonical display name for a raw species code/name; falls back to a
+// title-cased version of the raw value when it isn't in the species map.
+function displaySpeciesName(raw) {
+    if (!raw) return 'Hardwood';
+    const key = normalizeSpecies(raw);
+    return SPECIES_DISPLAY_NAME[key] || String(raw).toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// Smalian's formula: average of butt/top cross-sectional area x length.
+function cubicVolumeFt3(buttDiaIn, topDiaIn, lengthFt) {
+    const areaFt2 = d => Math.PI / 4 * (d / 12) ** 2;
+    return (areaFt2(buttDiaIn) + areaFt2(topDiaIn)) / 2 * lengthFt;
+}
+
+// Values a segment as a weight-priced product (peeler/scrag) instead of a
+// graded sawlog. Returns an ineligible result (value 0, reason set) rather
+// than throwing, so a mismatched product choice just teaches a $0 lesson.
+function scoreAsProduct(product, buttDiaIn, topDiaIn, lengthFt, species) {
+    const spec = PRODUCT_SPECS[product];
+    const speciesKey = normalizeSpecies(species);
+
+    if (spec.eligibleSpecies && !spec.eligibleSpecies.includes(speciesKey)) {
+        return { grade: spec.label, pricePerBF: 0, value: 0, ineligible: true,
+                 reason: `${displaySpeciesName(species)} is not accepted as ${spec.label} in this market.` };
+    }
+    if (topDiaIn < spec.minSED || (spec.maxSED && topDiaIn > spec.maxSED)) {
+        return { grade: spec.label, pricePerBF: 0, value: 0, ineligible: true,
+                 reason: `Small-end diameter ${topDiaIn.toFixed(1)}" is outside the ${spec.minSED}"${spec.maxSED ? '-' + spec.maxSED + '"' : '"+'} range for ${spec.label}.` };
+    }
+
+    const density = SPECIES_DENSITY[speciesKey] ?? SPECIES_DENSITY.DEFAULT;
+    const volumeFt3 = cubicVolumeFt3(buttDiaIn, topDiaIn, lengthFt);
+    const tons = (volumeFt3 * density) / 2000;
+    const value = Math.round(tons * spec.pricePerTon);
+
+    return { grade: spec.label, pricePerBF: null, value, tons: +tons.toFixed(2), ineligible: false };
+}
 
 // ─── Sweep Deduction Rule ─────────────────────────────────────────────────
 // AHMI rule: Diameter rule = Gross Sweep / 4; Length rule = Gross Sweep / 3
@@ -108,7 +228,7 @@ function normalizeMillStudyStem(stem) {
                     defects.push({
                         type: 'seam',
                         label: `Mill defect${zone.memberDefectCount > 1 ? 's' : ''} (${zone.memberDefectCount || 1})`,
-                        color: COLORS.defect.seam,
+                        color: COLORS.defect.millDefect,
                         facePenalty: 1,
                         startFt: zoneStartFt,
                         endFt: Math.min(endFt, zoneEndFt),
@@ -127,7 +247,7 @@ function normalizeMillStudyStem(stem) {
                 defects.push({
                     type: 'seam',
                     label: `Mill defects (${total})`,
-                    color: COLORS.defect.seam,
+                    color: COLORS.defect.millDefect,
                     facePenalty: 1,
                     startFt,
                     endFt,
@@ -227,12 +347,11 @@ function loadLog(logObj) {
     buttDia        = logObj.butt;
     topDia         = logObj.top;
     cuts           = [];
+    pieceProduct   = [];
     logRotation    = 0;
     currentDefects = logObj.defects || generateDefects(totalLength);
 
-    const displaySpecies = logObj.species
-        ? logObj.species.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
-        : 'Hardwood';
+    const displaySpecies = displaySpeciesName(logObj.species);
     document.getElementById('logDesc').textContent =
         `${displaySpecies} (${logObj.treeNum})${logObj.stemType ? ` — ${logObj.stemType}` : ''} — ${totalLength}ft  |  Butt: ${buttDia}"  |  Top: ${topDia}"`;
     document.getElementById('logCounter').textContent =
@@ -860,6 +979,7 @@ canvas.addEventListener('mousedown', (e) => {
         cuts.push(snapX);
         cuts.sort((a, b) => a - b);
         dragIdx = cuts.indexOf(snapX);
+        pieceProduct = [];
         drawLog();
     }
 });
@@ -905,7 +1025,7 @@ canvas.addEventListener('contextmenu', (e) => {
     const rect = canvas.getBoundingClientRect();
     const ft   = (e.clientX - rect.left) * totalLength / rect.width;
     const idx  = cuts.findIndex(c => Math.abs(c - ft) < 0.6);
-    if (idx !== -1) { cuts.splice(idx, 1); drawLog(); }
+    if (idx !== -1) { cuts.splice(idx, 1); pieceProduct = []; drawLog(); }
 });
 
 window.addEventListener('mouseup', () => {
@@ -931,6 +1051,7 @@ canvas.addEventListener('touchstart', (e) => {
         cuts.push(snapX);
         cuts.sort((a, b) => a - b);
         dragIdx = cuts.indexOf(snapX);
+        pieceProduct = [];
         drawLog();
     }
 }, { passive: false });
@@ -1068,7 +1189,7 @@ function getGradeAndPrice(dia, clearFaces) {
 // This is the single source of truth for valuing a physical piece of stem.
 // Both the player-facing display and the optimizer use it so an optimal plan's
 // reported total always equals the values shown for its individual logs.
-function scoreSegment(startFt, endFt, defects) {
+function scoreSegment(startFt, endFt, defects, product = 'sawlog') {
     const trim = getTrim();
     const standardLengths = [16, 14, 12, 10, 8];
     const physicalLen = endFt - startFt;
@@ -1096,8 +1217,18 @@ function scoreSegment(startFt, endFt, defects) {
         const scalingDia = buttDia - (buttDia - topDia) * frac;
 
         const effectiveDia = applySweepDeduction(scalingDia, startFt, startFt + nomLen, defects);
+        const clearFaces   = getClearFaces(startFt, startFt + nomLen, defects);
 
-        const clearFaces = getClearFaces(startFt, startFt + nomLen, defects);
+        if (product === 'peeler' || product === 'scrag') {
+            // Weight-priced products: value from cubic volume x species density,
+            // not Doyle BF (Doyle drastically underscales small/low-grade logs).
+            const buttFrac    = startFt / totalLength;
+            const buttDiaAtCut = buttDia - (buttDia - topDia) * buttFrac;
+            const gradeInfo = scoreAsProduct(product, buttDiaAtCut, effectiveDia, nomLen, currentTree?.species);
+            return { startFt, endFt, physicalLen, nomLen, scalingDia, clearFaces,
+                     volumeBF: null, gradeInfo, value: gradeInfo.value };
+        }
+
         const volumeBF   = doyleVolume(effectiveDia, nomLen);
         const gradeInfo  = getGradeAndPrice(effectiveDia, clearFaces);
         const value      = Math.round(volumeBF * gradeInfo.pricePerBF);
@@ -1109,14 +1240,14 @@ function scoreSegment(startFt, endFt, defects) {
              gradeInfo: { grade: 'Pulp/Waste', pricePerBF: 0 }, value: 0 };
 }
 
-function scoreSegments(cutList, defects) {
+function scoreSegments(cutList, defects, productOverrides = []) {
     let totalValue = 0;
     const segs = [];
     const allPoints = [...cutList, totalLength];
     let prevFt = 0;
 
-    allPoints.forEach(endFt => {
-        const segment = scoreSegment(prevFt, endFt, defects);
+    allPoints.forEach((endFt, i) => {
+        const segment = scoreSegment(prevFt, endFt, defects, productOverrides[i] || 'sawlog');
         totalValue += segment.value;
         segs.push(segment);
         prevFt = endFt;
@@ -1135,10 +1266,19 @@ function updateSegments() {
             const tipFt   = s.startFt + s.nomLen;
             const buttDiaAtCut = (buttDia - (buttDia - topDia) * (buttEnd / totalLength)).toFixed(1);
             const tipDiaAtCut  = (buttDia - (buttDia - topDia) * (tipFt  / totalLength)).toFixed(1);
-            html += `<div class="segment">
-                Piece ${i+1}: <strong>${s.nomLen}'</strong> log
-                (${formatFeetInches(s.physicalLen)} cut) &mdash;
-                butt ${buttDiaAtCut}" &rarr; small end ${tipDiaAtCut}"
+            const selected = pieceProduct[i] || 'sawlog';
+            const radio = (value, text) => `<label style="white-space:nowrap; cursor:pointer;">
+                <input type="radio" name="product-${i}" value="${value}" ${selected === value ? 'checked' : ''}
+                       onchange="setPieceProduct(${i}, '${value}')"> ${text}</label>`;
+            html += `<div class="segment" style="display:flex; flex-wrap:wrap; align-items:center; gap:16px; text-align:left;">
+                <span style="display:flex; gap:12px; font-size:12px; color:${COLORS.wvuSlate};">
+                    ${radio('sawlog', 'Sawlog')}${radio('peeler', 'Peeler')}${radio('scrag', 'Scrag')}
+                </span>
+                <span>
+                    Piece ${i+1}: <strong>${s.nomLen}'</strong> log
+                    (${formatFeetInches(s.physicalLen)} cut) &mdash;
+                    butt ${buttDiaAtCut}" &rarr; small end ${tipDiaAtCut}"
+                </span>
             </div>`;
         } else {
             html += `<div class="segment" style="color:${COLORS.wvuSlate}; font-style:italic;">
@@ -1147,8 +1287,12 @@ function updateSegments() {
         }
     });
     document.getElementById('segments').innerHTML = html;
-    document.getElementById('segmentCount').textContent = segs.filter(s => s.nomLen > 0).length;
-    document.getElementById('totalValue').textContent = '—';
+}
+
+// Called from the per-piece product <select> in updateSegments(); the actual
+// re-pricing happens on the next "Score This Stem" click.
+function setPieceProduct(i, value) {
+    pieceProduct[i] = value;
 }
 
 // ─── Optimal Solver ────────────────────────────────────────────────────────
@@ -1161,6 +1305,7 @@ function computeOptimal() {
     const steps          = Math.round(totalLength / step);
     const dp             = new Array(steps + 1).fill(0);
     const choice         = new Array(steps + 1).fill(null);
+    const choiceProduct  = new Array(steps + 1).fill(null);
 
     for (let i = steps - 1; i >= 0; i--) {
         const startFt = i * step;
@@ -1181,21 +1326,36 @@ function computeOptimal() {
             // Score the grid-aligned physical piece with the same function used
             // by the displayed bucking plan.  Do not value the unrounded,
             // theoretical endpoint: that was the source of DP/display gaps.
-            const segment = scoreSegment(startFt, endFt, currentDefects);
-            if (segment.nomLen === 0) continue;
-            const val = segment.value + dp[endStep];
-            
-            if (val > dp[i]) { dp[i] = val; choice[i] = endStep; }
+            // Evaluate every product this piece could be sold as (sawlog is
+            // always an option; peeler/scrag only when eligible) and let the
+            // DP pick whichever is worth the most, same as it already picks
+            // the best length.
+            const sawSeg = scoreSegment(startFt, endFt, currentDefects, 'sawlog');
+            if (sawSeg.nomLen === 0) continue;
+            let bestProduct = 'sawlog';
+            let bestValue   = sawSeg.value;
+            for (const product of ['peeler', 'scrag']) {
+                const altSeg = scoreSegment(startFt, endFt, currentDefects, product);
+                if (!altSeg.gradeInfo.ineligible && altSeg.value > bestValue) {
+                    bestValue = altSeg.value;
+                    bestProduct = product;
+                }
+            }
+            const val = bestValue + dp[endStep];
+
+            if (val > dp[i]) { dp[i] = val; choice[i] = endStep; choiceProduct[i] = bestProduct; }
         }
     }
 
-    const optCuts = [];
+    const optCuts     = [];
+    const optProducts = [];
     let pos = 0;
     while (pos < steps && choice[pos] !== null) {
+        optProducts.push(choiceProduct[pos]);
         pos = choice[pos];
         if (pos < steps) optCuts.push(pos * step);
     }
-    return { optCuts, optValue: dp[0] };
+    return { optCuts, optValue: dp[0], optProducts };
 }
 
 // ─── Explain Why Optimal Differs ───────────────────────────────────────────
@@ -1219,6 +1379,12 @@ function generateBuckingExplanation(userSegs, optSegs, defects) {
     function describeSegment(s, label) {
         if (s.nomLen === 0) {
             return `<li><strong>${label}:</strong> ${formatFeetInches(s.physicalLen)} piece was too short for any standard log length (min 8') and was wasted.</li>`;
+        }
+        if (s.gradeInfo.ineligible) {
+            return `<li><strong>${label}:</strong> ${s.nomLen}' log marked as <strong>${s.gradeInfo.grade}</strong> ($0). ${s.gradeInfo.reason}</li>`;
+        }
+        if (s.gradeInfo.tons != null) {
+            return `<li><strong>${label}:</strong> ${s.nomLen}' log scaled at ${s.scalingDia.toFixed(1)}" &rarr; <strong>${s.gradeInfo.grade}</strong>, ${s.gradeInfo.tons} tons ($${s.value}).</li>`;
         }
         const active = overlappingDefects(s.startFt, s.startFt + s.nomLen);
         let defectDesc = '';
@@ -1350,11 +1516,11 @@ function generateBuckingExplanation(userSegs, optSegs, defects) {
 
 // ─── Score This Log ────────────────────────────────────────────────────────
 document.getElementById('scoreLog').addEventListener('click', () => {
-    const { optCuts }            = computeOptimal();
-    const { totalValue, segs }   = scoreSegments(cuts, currentDefects);
+    const { optCuts, optProducts } = computeOptimal();
+    const { totalValue, segs }   = scoreSegments(cuts, currentDefects, pieceProduct);
     // Re-score the reconstructed cuts so every displayed optimal total is the
     // sum of the exact plan shown below it.
-    const { totalValue: optValue, segs: optSegs } = scoreSegments(optCuts, currentDefects);
+    const { totalValue: optValue, segs: optSegs } = scoreSegments(optCuts, currentDefects, optProducts);
     const trim                   = getTrim();
     const pct                    = optValue > 0 ? Math.round((totalValue / optValue) * 100) : 0;
     const scoreColor             = pct >= 90 ? COLORS.feedback.success : pct >= 70 ? COLORS.feedback.warning : COLORS.feedback.error;
@@ -1382,17 +1548,25 @@ document.getElementById('scoreLog').addEventListener('click', () => {
 
     html += generateBuckingExplanation(segs, optSegs, currentDefects);
 
+    // Weight-priced products (peeler/scrag) report tons, not board feet or
+    // clear faces — those measures don't apply to a ton-priced product.
+    function measureDetail(s) {
+        const faceColor = s.clearFaces >= 3 ? COLORS.feedback.success : s.clearFaces >= 2 ? COLORS.feedback.warning : COLORS.feedback.error;
+        if (s.gradeInfo.tons != null) {
+            return `<strong>${s.gradeInfo.tons} tons</strong>`;
+        }
+        return `<strong>${s.volumeBF} bf</strong> | <span style="color:${faceColor}; font-weight:bold;">${s.clearFaces} clear faces</span>`;
+    }
+
     html += `<div style="display:flex; gap:20px; flex-wrap:wrap;">
             <div style="flex:1; min-width:220px;">
                 <h3 style="color:${COLORS.feedback.error};">&#9999; Your Bucking — $${totalValue}</h3>`;
 
     segs.forEach((s, i) => {
         if (s.nomLen > 0) {
-            const faceColor = s.clearFaces >= 3 ? COLORS.feedback.success : s.clearFaces >= 2 ? COLORS.feedback.warning : COLORS.feedback.error;
             html += `<div class="segment" style="border-left-color: ${COLORS.feedback.error};">
                 Log ${i+1}: <strong>${s.nomLen}'</strong> (${formatFeetInches(s.physicalLen)} piece) @
-                ${s.scalingDia.toFixed(1)}" | <strong>${s.volumeBF} bf</strong> |
-                <span style="color:${faceColor}; font-weight:bold;">${s.clearFaces} clear faces</span>
+                ${s.scalingDia.toFixed(1)}" | ${measureDetail(s)}
                 &rarr; <strong>${s.gradeInfo.grade}</strong> &rarr; $${s.value}
             </div>`;
         } else {
@@ -1406,11 +1580,9 @@ document.getElementById('scoreLog').addEventListener('click', () => {
                 <h3 style="color:${COLORS.wvuBlue};">&#10003; Optimal Bucking — $${optValue}</h3>`;
 
     optSegs.forEach((s, i) => {
-        const faceColor = s.clearFaces >= 3 ? COLORS.feedback.success : s.clearFaces >= 2 ? COLORS.feedback.warning : COLORS.feedback.error;
         html += `<div class="segment" style="border-left-color: ${COLORS.wvuGold};">
             Log ${i+1}: <strong>${s.nomLen}'</strong> @
-            ${s.scalingDia.toFixed(1)}" | <strong>${s.volumeBF} bf</strong> |
-            <span style="color:${faceColor}; font-weight:bold;">${s.clearFaces} clear faces</span>
+            ${s.scalingDia.toFixed(1)}" | ${measureDetail(s)}
             &rarr; <strong>${s.gradeInfo.grade}</strong> &rarr; $${s.value}
         </div>`;
     });
@@ -1574,6 +1746,7 @@ function restartGame() {
 // ─── Reset Cuts ────────────────────────────────────────────────────────────
 document.getElementById('reset').addEventListener('click', () => {
     cuts = [];
+    pieceProduct = [];
     drawLog();
     document.getElementById('scoreLog').style.display  = 'inline-block';
     document.getElementById('nextLog').style.display   = 'none';

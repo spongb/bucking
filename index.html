@@ -71,6 +71,44 @@
                 Prices per board foot are loaded from <code>prices.json</code> — edit that file to update rates.<br>
                 <em>Sweep: reduces scaling diameter (0.5"/face affected)</em>
             </p>
+
+            <p style="margin:14px 0 4px; font-weight:bold; color:#002855;">Weight-Priced Products (sold by the green ton, not by grade)</p>
+            <table style="border-collapse:collapse; width:100%;">
+                <thead>
+                    <tr style="background:#002855; color:#fff;">
+                        <th style="padding:5px 10px; text-align:left;">Product</th>
+                        <th style="padding:5px 10px;">Price</th>
+                        <th style="padding:5px 10px;">Species</th>
+                        <th style="padding:5px 10px;">Min SED</th>
+                        <th style="padding:5px 10px; text-align:left;">Requirements</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="border-bottom:1px solid #ddd;">
+                        <td style="padding:5px 10px; font-weight:bold;">Peeler</td>
+                        <td style="padding:5px 10px; text-align:center;">$500/ton<br><span style="font-size:11px; color:#c0392b; font-weight:bold;">TESTING VALUE</span></td>
+                        <td style="padding:5px 10px; text-align:center;">Yellow-poplar only</td>
+                        <td style="padding:5px 10px; text-align:center;">12"–14"+</td>
+                        <td style="padding:5px 10px;">Straight &amp; round, pith centered, minimal small knots, no sweep/rot/splits/metal, cut square, 8'+ clear. Must be fresh-cut (poplar blue-stains quickly).</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:5px 10px; font-weight:bold;">Scrag</td>
+                        <td style="padding:5px 10px; text-align:center;">~$30/ton<br><span style="font-size:11px; color:#777;">($20–$40 range)</span></td>
+                        <td style="padding:5px 10px; text-align:center;">Mixed hardwood (any)</td>
+                        <td style="padding:5px 10px; text-align:center;">6"–14"</td>
+                        <td style="padding:5px 10px;">#3/pallet grade — sound wood only (no rot or metal); knots &amp; moderate sweep tolerated.</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p style="margin:6px 0 0; color:#555; font-size:12px;">
+                Value = log volume (cubic ft, from butt/top diameter &amp; length) × species green density ÷ 2000, priced per ton.
+                Doyle board-foot scale is not used for these — it underestimates real log volume, especially on smaller logs.
+            </p>
+            <p style="margin:6px 0 0; color:#c0392b; font-size:12px;">
+                <strong>Note:</strong> the Peeler price above ($500/ton) is inflated for testing only, so peeler bucking
+                choices actually show up in the optimizer — the real WV market average is ~$107/ton ($85–$130 range),
+                which never outweighs a sawlog grade at the volumes a single piece weighs. Revert before real use.
+            </p>
         </details>
         
         <canvas id="logCanvas" width="800" height="200"></canvas>
@@ -92,14 +130,14 @@
             <canvas id="optFaceCanvas" width="800" height="88"></canvas>
         </div>
 
+        <div id="segments"></div>
+
         <div id="info">
-            <p>Segments: <span id="segmentCount">0</span> &nbsp;|&nbsp; Your Value: $<span id="totalValue">0</span></p>
             <button id="scoreLog">Score This Stem</button>
             <button id="nextLog" style="display:none;">Next Stem →</button>
             <button id="reset">Reset Cuts</button>
         </div>
 
-        <div id="segments"></div>
         <div id="finalScore" style="display:none;"></div>
     </div>
 
