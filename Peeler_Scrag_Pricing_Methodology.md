@@ -74,6 +74,19 @@ lookup; `displaySpeciesName(raw)` does the same lookup but returns a friendly la
 (`"Yellow Poplar"`) for anywhere a species is shown in the UI — this also fixed a
 cosmetic bug where the stem header displayed raw codes as `"Yp"` instead of a real name.
 
+### `PEELER_LENGTHS_FT`
+
+Peeler bolts are sold in market-preferred lengths (10.5', 9.5', 8.5' — veneer blocks
+plus trim allowance), not the sawlog standard-length ladder (8/10/12/14/16 ft). This
+constant holds those lengths, longest first, so length selection prefers the longest
+bolt that fits, same preference order as sawlog lengths.
+
+Critically, **these lengths already include the mill's trim allowance** — unlike
+sawlog lengths, `scoreSegment()` does not subtract the trim input from a peeler
+candidate's physical length before matching it against `PEELER_LENGTHS_FT` (see
+"Wiring Into Segment Scoring" below). Adding trim on top of these figures would
+double-count it.
+
 ### `cubicVolumeFt3()` and `scoreAsProduct()`
 
 - `cubicVolumeFt3(buttDiaIn, topDiaIn, lengthFt)` applies Smalian's formula (average of
@@ -94,14 +107,19 @@ cosmetic bug where the stem header displayed raw codes as `"Yp"` instead of a re
 ## Wiring Into Segment Scoring
 
 `scoreSegment(startFt, endFt, defects, product = 'sawlog')` gained a `product`
-parameter. The nominal-length selection (which standard length fits the physical cut)
-is unchanged and shared across all three products — only what happens *after* a valid
-nominal length is found differs:
+parameter. Nominal-length selection (which standard length fits the physical cut) is
+now **product-aware**:
 
-- `product === 'sawlog'` (default): unchanged — Doyle volume × AHMI grade price.
-- `product === 'peeler'` or `'scrag'`: computes butt/small-end diameter at the cut,
-  calls `scoreAsProduct()`, and returns that result instead. `volumeBF` is `null` on
-  these segments (there is no board-foot figure — display code checks for this).
+- `product === 'sawlog'` (default) or `'scrag'`: unchanged — matches against the
+  sawlog standard-length ladder (16/14/12/10/8 ft) after subtracting the trim input.
+- `product === 'peeler'`: matches against `PEELER_LENGTHS_FT` (10.5/9.5/8.5 ft)
+  instead, and **skips the trim subtraction entirely** (`trim = 0`) — those lengths
+  already have trim baked in, per the market spec.
+
+Pricing differs the same way as before: `product === 'sawlog'` uses Doyle volume ×
+AHMI grade price; `'peeler'`/`'scrag'` compute butt/small-end diameter at the cut,
+call `scoreAsProduct()`, and return that result instead. `volumeBF` is `null` on
+these segments (there is no board-foot figure — display code checks for this).
 
 `scoreSegments(cutList, defects, productOverrides = [])` takes a per-segment-index
 array of product choices and threads them through to `scoreSegment`.
@@ -135,38 +153,61 @@ was assigned. The results panel:
 
 ## Wiring Into the DP Optimal Solver
 
-`computeOptimal()` originally only ever scored candidate segments as sawlogs. It now
-evaluates **all three products** for every candidate `(startFt, nomLen)` pair and keeps
-whichever is worth the most — the same mechanism it already used to pick the best
-*length* is now also used to pick the best *product*:
+`computeOptimal()` originally only ever scored candidate segments as sawlogs, using a
+single candidate-length list (8/10/12/14/16 ft, each with the trim allowance added).
+It now does two things:
 
-```js
-const sawSeg = scoreSegment(startFt, endFt, currentDefects, 'sawlog');
-if (sawSeg.nomLen === 0) continue;
-let bestProduct = 'sawlog';
-let bestValue   = sawSeg.value;
-for (const product of ['peeler', 'scrag']) {
-    const altSeg = scoreSegment(startFt, endFt, currentDefects, product);
-    if (!altSeg.gradeInfo.ineligible && altSeg.value > bestValue) {
-        bestValue = altSeg.value;
-        bestProduct = product;
-    }
-}
-```
+1. **Builds its candidate cut list from both length sets.** Each candidate carries
+   whether trim applies to it:
+
+   ```js
+   const candidateLengths = [
+       ...[8, 10, 12, 14, 16].map(len => ({ len, includeTrim: true })),   // sawlog
+       ...PEELER_LENGTHS_FT.map(len => ({ len, includeTrim: false })),    // peeler
+   ];
+   ```
+
+   For each `{ len, includeTrim }`, the candidate end position is
+   `startFt + len + (includeTrim ? trim : 0) + ecDeduction` — so a peeler-length
+   candidate's physical span is exactly `len` (plus any end-check deduction), with no
+   trim added on top.
+
+2. **Evaluates all three products against whichever physical segment each candidate
+   produces**, and keeps whichever is worth the most:
+
+   ```js
+   let bestProduct = null;
+   let bestValue   = -1;
+   for (const product of ['sawlog', 'peeler', 'scrag']) {
+       const seg = scoreSegment(startFt, endFt, currentDefects, product);
+       if (seg.nomLen === 0 || seg.gradeInfo.ineligible) continue;
+       if (seg.value > bestValue) { bestValue = seg.value; bestProduct = product; }
+   }
+   if (bestProduct === null) continue;
+   ```
+
+   This checks all three products (not just an already-viable sawlog result) because
+   a candidate built from a peeler length very often resolves to `nomLen === 0` when
+   scored as a sawlog (its physical span rarely lines up with a valid sawlog length
+   once trim is subtracted), and vice versa. The first implementation of this
+   evaluation loop only fell through to peeler/scrag when the *sawlog* scoring had
+   already succeeded — which meant every peeler-length candidate was silently
+   discarded before peeler-specific lengths existed to expose the bug.
 
 The DP's backtracking array (`choiceProduct`, parallel to the existing `choice` array)
 records which product won at each retained cut, so the reconstructed solution returns
 `{ optCuts, optValue, optProducts }`. The "Score This Stem" handler passes
 `optProducts` into `scoreSegments()` for the optimal side, so the displayed optimal
 plan — and its dollar total — genuinely reflects the best achievable mix of sawlog,
-peeler, and scrag pieces, not a sawlog-only ceiling.
+peeler, and scrag pieces, including peeler-length-specific cuts, not a sawlog-only
+ceiling.
 
-**Scope note:** the DP explores standard sawlog lengths (8/10/12/14/16 ft) at every
-candidate position and evaluates all three products against each resulting piece. It
-does *not* separately search peeler-specific lengths (8'6", 10'6") or scrag-specific
-lengths — those markets' preferred lengths aren't yet part of the candidate-length set.
-A future refinement could add product-specific candidate lengths if that distinction
-matters for training purposes.
+**Scope note:** peeler now has its own dedicated candidate lengths in the DP. Scrag
+does not — it's still evaluated only against whatever physical segment the sawlog or
+peeler length candidates happen to produce, since scrag doesn't have a comparably
+strict preferred-length list in the market spec this feature was built from. If scrag
+turns out to need its own candidate lengths (e.g. its 8-12 ft preferred range), the
+same `candidateLengths` pattern used for peeler can be extended.
 
 ---
 
@@ -200,10 +241,10 @@ the economically correct behavior, not a bug.
   cross-check. Only yellow-poplar, red oak, and hard maple were explicitly given in
   the sourcing spec for this feature; the rest were extrapolated and should be
   verified before being treated as production-grade numbers.
-- **No product-specific length preferences in the DP.** As noted above, the solver
-  reuses the sawlog standard-length set (8–16 ft) for every product rather than
-  searching peeler's 8'6"/10'6" veneer-block lengths or scrag's 8–12 ft range
-  directly.
+- **Scrag has no dedicated candidate lengths in the DP.** Peeler now searches its own
+  preferred lengths (10.5'/9.5'/8.5'), but scrag is still only evaluated against
+  whatever physical segment the sawlog or peeler length candidates happen to produce,
+  rather than searching scrag's own 8-12 ft preferred range directly.
 - **Single flat price per product**, not a species- or size-tiered price (e.g. real
   peeler pricing varies with SED — 16"+ logs command more than 12" logs). The current
   model uses one `pricePerTon` regardless of size within the eligible SED range.
@@ -220,5 +261,5 @@ the economically correct behavior, not a bug.
 
 | File | Change |
 |---|---|
-| `script.js` | Added `PRODUCT_SPECS`, `SPECIES_DENSITY`, `SPECIES_DISPLAY_NAME`, `SPECIES_CODE_MAP`, `normalizeSpecies()`, `displaySpeciesName()`, `cubicVolumeFt3()`, `scoreAsProduct()`. Extended `scoreSegment()`/`scoreSegments()` with a `product`/`productOverrides` parameter. Added `pieceProduct[]` state, `setPieceProduct()`, and radio-button rendering in `updateSegments()`. Extended `computeOptimal()` to evaluate and backtrack through all three products (`choiceProduct`, `optProducts`). Added `COLORS.defect.millDefect` (pink) so mill-projected defects are visually distinct from real seam/quality defects. Updated the results panel to show tons instead of bf/clear-faces for weight-priced segments. |
+| `script.js` | Added `PRODUCT_SPECS`, `PEELER_LENGTHS_FT`, `SPECIES_DENSITY`, `SPECIES_DISPLAY_NAME`, `SPECIES_CODE_MAP`, `normalizeSpecies()`, `displaySpeciesName()`, `cubicVolumeFt3()`, `scoreAsProduct()`. Extended `scoreSegment()`/`scoreSegments()` with a `product`/`productOverrides` parameter, including product-specific length matching and trim handling for peeler. Added `pieceProduct[]` state, `setPieceProduct()`, and radio-button rendering in `updateSegments()`. Extended `computeOptimal()` to build its candidate cut list from both sawlog and peeler length sets and to evaluate/backtrack through all three products (`choiceProduct`, `optProducts`). Added `COLORS.defect.millDefect` (pink) so mill-projected defects are visually distinct from real seam/quality defects. Updated the results panel to show tons instead of bf/clear-faces for weight-priced segments. |
 | `index.html` | Added a "Weight-Priced Products" table to the Grading Reference panel describing peeler/scrag price, eligible species, min SED, and quality requirements, including the testing-value caveat. |

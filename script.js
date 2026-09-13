@@ -45,6 +45,12 @@ let PRICES = {
 // market; scrag is the mixed-hardwood #3/pallet market. Both are sold by the
 // green ton, so value comes from cubic volume x species green density, not
 // from Doyle BF (Doyle drastically underscales small/low-grade logs).
+// Preferred peeler bolt lengths (longest first, so the DP/scoreSegment length
+// search prefers the longest bolt that fits, same preference order as the
+// sawlog standard lengths). These already include the mill's trim allowance,
+// so no separate trim is subtracted for peeler segments.
+const PEELER_LENGTHS_FT = [10.5, 9.5, 8.5];
+
 const PRODUCT_SPECS = {
     peeler: {
         label: 'Peeler',
@@ -392,7 +398,7 @@ function buildDefectLegend() {
                   ${makeFaceIndicator(d.facesAffected, d.color)}
                   </span>`;
     });
-    const html = `<details style="margin:6px 0 12px; font-size:13px; text-align:left;" open>
+    const html = `<details style="margin:6px 0 12px; font-size:13px; text-align:left;">
         <summary style="cursor:pointer; font-weight:bold; color:${COLORS.wvuBlue};">&#9432; Defects on this stem (${count})</summary>
         <div style="margin-top:6px;">${inner}</div>
     </details>`;
@@ -975,7 +981,7 @@ canvas.addEventListener('mousedown', (e) => {
     if (idx !== -1) {
         dragIdx = idx;
     } else {
-        const snapX = Math.round(x * 10) / 10;
+        const snapX = Math.round(x * 12) / 12; // snap to the nearest inch, matching the DP's grid
         cuts.push(snapX);
         cuts.sort((a, b) => a - b);
         dragIdx = cuts.indexOf(snapX);
@@ -992,7 +998,7 @@ window.addEventListener('mousemove', (e) => {
     const ft        = Math.max(0, Math.min(totalLength, relX * totalLength / rect.width));
 
     if (dragIdx !== -1) {
-        cuts[dragIdx] = Math.round(ft * 10) / 10;
+        cuts[dragIdx] = Math.round(ft * 12) / 12; // snap to the nearest inch, matching the DP's grid
         drawLog();
     } else if (overCanvas) {
         const idx = cuts.findIndex(c => Math.abs(c - ft) < 0.4);
@@ -1047,7 +1053,7 @@ canvas.addEventListener('touchstart', (e) => {
     if (idx !== -1) {
         dragIdx = idx;
     } else {
-        const snapX = Math.round(x * 10) / 10;
+        const snapX = Math.round(x * 12) / 12; // snap to the nearest inch, matching the DP's grid
         cuts.push(snapX);
         cuts.sort((a, b) => a - b);
         dragIdx = cuts.indexOf(snapX);
@@ -1062,7 +1068,7 @@ window.addEventListener('touchmove', (e) => {
     const rect  = canvas.getBoundingClientRect();
     const touch = e.touches[0];
     const x     = (touch.clientX - rect.left) * totalLength / rect.width;
-    cuts[dragIdx] = Math.round(Math.max(0, Math.min(totalLength, x)) * 10) / 10;
+    cuts[dragIdx] = Math.round(Math.max(0, Math.min(totalLength, x)) * 12) / 12; // snap to the nearest inch, matching the DP's grid
     drawLog();
 }, { passive: false });
 
@@ -1190,8 +1196,12 @@ function getGradeAndPrice(dia, clearFaces) {
 // Both the player-facing display and the optimizer use it so an optimal plan's
 // reported total always equals the values shown for its individual logs.
 function scoreSegment(startFt, endFt, defects, product = 'sawlog') {
-    const trim = getTrim();
-    const standardLengths = [16, 14, 12, 10, 8];
+    // Peeler bolt lengths are market-preferred lengths with trim already baked
+    // in (9', 10', 11' veneer blocks + trim allowance) — no additional trim
+    // is subtracted, unlike sawlog standard lengths.
+    const isPeeler        = product === 'peeler';
+    const trim            = isPeeler ? 0 : getTrim();
+    const standardLengths = isPeeler ? PEELER_LENGTHS_FT : [16, 14, 12, 10, 8];
     const physicalLen = endFt - startFt;
 
     // Bole-end checks consume usable log length — deduct their span from maxNomLen.
@@ -1297,8 +1307,13 @@ function setPieceProduct(i, value) {
 
 // ─── Optimal Solver ────────────────────────────────────────────────────────
 function computeOptimal() {
-    const trim           = getTrim();
-    const allowedLengths = [8, 10, 12, 14, 16];
+    const trim = getTrim();
+    // Sawlog candidates get the usual trim allowance; peeler candidates use
+    // their own preferred lengths with no additional trim (already baked in).
+    const candidateLengths = [
+        ...[8, 10, 12, 14, 16].map(len => ({ len, includeTrim: true })),
+        ...PEELER_LENGTHS_FT.map(len => ({ len, includeTrim: false })),
+    ];
     // One-inch states preserve the 4-inch trim exactly and make the returned
     // cut positions practical to score and display without six-inch rounding.
     const step           = 1 / 12;
@@ -1309,7 +1324,7 @@ function computeOptimal() {
 
     for (let i = steps - 1; i >= 0; i--) {
         const startFt = i * step;
-        for (const nomLen of allowedLengths) {
+        for (const { len: nomLen, includeTrim } of candidateLengths) {
             // Bole-end checks consume usable length; the physical span must grow
             // by the check length so the nominal log still measures nomLen usable feet.
             let ecDeduction = 0;
@@ -1317,7 +1332,7 @@ function computeOptimal() {
                 if (d.type === 'end_check' && d.startFt < startFt + nomLen && d.endFt > startFt)
                     ecDeduction += Math.min(d.endFt, startFt + nomLen) - Math.max(d.startFt, startFt);
             });
-            const cutFt   = startFt + nomLen + trim + ecDeduction;
+            const cutFt   = startFt + nomLen + (includeTrim ? trim : 0) + ecDeduction;
             if (cutFt > totalLength + 0.01) continue;
             const endStep = Math.min(Math.round(cutFt / step), steps);
             const endFt   = endStep * step;
@@ -1327,20 +1342,19 @@ function computeOptimal() {
             // by the displayed bucking plan.  Do not value the unrounded,
             // theoretical endpoint: that was the source of DP/display gaps.
             // Evaluate every product this piece could be sold as (sawlog is
-            // always an option; peeler/scrag only when eligible) and let the
-            // DP pick whichever is worth the most, same as it already picks
-            // the best length.
-            const sawSeg = scoreSegment(startFt, endFt, currentDefects, 'sawlog');
-            if (sawSeg.nomLen === 0) continue;
-            let bestProduct = 'sawlog';
-            let bestValue   = sawSeg.value;
-            for (const product of ['peeler', 'scrag']) {
-                const altSeg = scoreSegment(startFt, endFt, currentDefects, product);
-                if (!altSeg.gradeInfo.ineligible && altSeg.value > bestValue) {
-                    bestValue = altSeg.value;
-                    bestProduct = product;
-                }
+            // usually the fallback; peeler/scrag only when eligible) and let
+            // the DP pick whichever is worth the most, same as it already
+            // picks the best length. A candidate built from a peeler length
+            // may not resolve to any usable sawlog length at all (and vice
+            // versa), so don't gate on the sawlog result alone.
+            let bestProduct = null;
+            let bestValue   = -1;
+            for (const product of ['sawlog', 'peeler', 'scrag']) {
+                const seg = scoreSegment(startFt, endFt, currentDefects, product);
+                if (seg.nomLen === 0 || seg.gradeInfo.ineligible) continue;
+                if (seg.value > bestValue) { bestValue = seg.value; bestProduct = product; }
             }
+            if (bestProduct === null) continue;
             const val = bestValue + dp[endStep];
 
             if (val > dp[i]) { dp[i] = val; choice[i] = endStep; choiceProduct[i] = bestProduct; }
