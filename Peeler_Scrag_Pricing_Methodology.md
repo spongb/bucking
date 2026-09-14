@@ -36,23 +36,34 @@ const PRODUCT_SPECS = {
     peeler: {
         label: 'Peeler',
         pricePerTon: 500,           // see "Testing Value" section below
-        eligibleSpecies: ['YELLOW_POPLAR'],
-        minSED: 12, maxSED: null,
-        notes: 'Yellow-poplar only. Straight & round, pith centered, no sweep/rot/splits, min SED 12"-14".'
+        eligibleSpecies: ['YELLOW_POPLAR', 'CUCUMBER', 'MAGNOLIA', 'ASPEN',
+          'BASSWOOD', 'BUCKEYE', 'SWEETGUM', 'SYCAMORE'],
+        minSED: 8, maxSED: 24,
+        notes: 'Columbia accepted species; minimum SED 8" inside bark and maximum scaling diameter 24" inside bark.'
     },
     scrag: {
         label: 'Scrag',
         pricePerTon: 30,
-        eligibleSpecies: null,      // any species — mixed-hardwood market
-        minSED: 6, maxSED: 14,
-        notes: '#3/pallet grade. Sound wood only (no rot/metal); knots & moderate sweep tolerated.'
+      eligibleSpecies: null,      // mixed hardwood, with field-spec exclusions
+      excludedSpecies: ['PINE', 'SPRUCE', 'FIR', 'BASSWOOD'],
+      minSED: 6, maxSED: 15,
+      rejectDefectTypes: ['rot', 'end_check'],
+      notes: '#3/pallet grade. No pine, spruce, fir, or basswood; 6"-15" diameter range; no rot, splits, or banana-shaped sweep.'
     }
 };
 ```
 
-These figures come from the WV northern-hardwood market spec provided for this feature
-(yellow-poplar dominates the peeler market; scrag is the mixed-hardwood #3/pallet
-market — red oak, hard maple, cherry, birch, beech, hickory, poplar culls).
+The peeler eligibility also incorporates the Columbia Forest Products sheet provided
+for this project (revised 08/06/2013): accepted species are poplar, cucumber,
+magnolia, aspen, basswood, buckeye, sweetgum, and sycamore; minimum SED is 8" inside
+bark; maximum scaling diameter is 24" inside bark; and specified lengths are 8'10"
+and 17'6". The sheet's grade-specific defect limits and MBF price columns are not
+fully represented by the current single weight-priced product model.
+
+The scrag figures come from the WV northern-hardwood market spec provided for this
+feature (scrag is the mixed-hardwood #3/pallet market). The scrag field notes exclude
+pine, spruce, fir, and basswood, accept a 6"-15" small-end diameter range, and favor
+lengths that are multiples of 7 or 8 feet.
 
 ### `SPECIES_DENSITY`
 
@@ -76,10 +87,9 @@ cosmetic bug where the stem header displayed raw codes as `"Yp"` instead of a re
 
 ### `PEELER_LENGTHS_FT`
 
-Peeler bolts are sold in market-preferred lengths (10.5', 9.5', 8.5' — veneer blocks
-plus trim allowance), not the sawlog standard-length ladder (8/10/12/14/16 ft). This
-constant holds those lengths, longest first, so length selection prefers the longest
-bolt that fits, same preference order as sawlog lengths.
+Peeler logs in the Columbia sheet are specified at 8'10" and 17'6", not the prior
+prior 10.5'/9.5'/8.5' assumptions. This constant holds those lengths, longest first, so
+length selection prefers the longest bolt that fits.
 
 Critically, **these lengths already include the mill's trim allowance** — unlike
 sawlog lengths, `scoreSegment()` does not subtract the trim input from a peeler
@@ -93,6 +103,12 @@ double-count it.
   butt/top cross-sectional area, times length) to get true cubic volume. This is
   deliberately **not** the Doyle formula — Doyle bakes in a lumber-recovery discount
   that has nothing to do with a log's actual mass.
+- Yellow Poplar peelers use the Columbia Forest Products regression supplied for this
+  project instead of green density:
+  `WeightLb = -744.5 - 40.1*Dia + 5.23*Dia^2 + 87.5*Length - 353.4*Butt + 32.1*(Butt*Dia)`.
+  `Dia` is the current small-end diameter in inches, `Length` is feet, and `Butt` is
+  1 for the first butt log and 0 for an upper log. The equation is reported as
+  significant at p < 0.0001 with R^2 = 90.8%.
 - `scoreAsProduct(product, buttDiaIn, topDiaIn, lengthFt, species)`:
   1. Normalizes `species` and checks it against `PRODUCT_SPECS[product].eligibleSpecies`.
      If the species isn't allowed (e.g. Red Oak offered as Peeler), it returns
@@ -100,7 +116,8 @@ double-count it.
      instead of throwing — a mismatched product choice just teaches a $0 lesson.
   2. Checks the segment's small-end diameter against `minSED`/`maxSED`. Out-of-range
      diameter also returns an ineligible $0 result with a reason string.
-  3. Otherwise: `tons = cubicVolumeFt3(...) * density / 2000`, `value = tons * pricePerTon`.
+    3. Otherwise: Yellow Poplar peelers use the regression weight; other products use
+      `tons = cubicVolumeFt3(...) * density / 2000`; `value = tons * pricePerTon`.
 
 ---
 
@@ -110,9 +127,10 @@ double-count it.
 parameter. Nominal-length selection (which standard length fits the physical cut) is
 now **product-aware**:
 
-- `product === 'sawlog'` (default) or `'scrag'`: unchanged — matches against the
-  sawlog standard-length ladder (16/14/12/10/8 ft) after subtracting the trim input.
-- `product === 'peeler'`: matches against `PEELER_LENGTHS_FT` (10.5/9.5/8.5 ft)
+- `product === 'sawlog'` (default): matches against the sawlog standard-length ladder
+  (16/14/12/10/8 ft) after subtracting the trim input.
+- `product === 'scrag'`: matches against 16/14/8/7 ft after subtracting the trim input.
+- `product === 'peeler'`: matches against `PEELER_LENGTHS_FT` (8'10"/17'6")
   instead, and **skips the trim subtraction entirely** (`trim = 0`) — those lengths
   already have trim baked in, per the market spec.
 
@@ -202,12 +220,8 @@ plan — and its dollar total — genuinely reflects the best achievable mix of 
 peeler, and scrag pieces, including peeler-length-specific cuts, not a sawlog-only
 ceiling.
 
-**Scope note:** peeler now has its own dedicated candidate lengths in the DP. Scrag
-does not — it's still evaluated only against whatever physical segment the sawlog or
-peeler length candidates happen to produce, since scrag doesn't have a comparably
-strict preferred-length list in the market spec this feature was built from. If scrag
-turns out to need its own candidate lengths (e.g. its 8-12 ft preferred range), the
-same `candidateLengths` pattern used for peeler can be extended.
+Scrag now has its own 7/8-foot-multiple candidate lengths in the DP, alongside the
+peeler-specific candidates.
 
 ---
 
@@ -241,10 +255,6 @@ the economically correct behavior, not a bug.
   cross-check. Only yellow-poplar, red oak, and hard maple were explicitly given in
   the sourcing spec for this feature; the rest were extrapolated and should be
   verified before being treated as production-grade numbers.
-- **Scrag has no dedicated candidate lengths in the DP.** Peeler now searches its own
-  preferred lengths (10.5'/9.5'/8.5'), but scrag is still only evaluated against
-  whatever physical segment the sawlog or peeler length candidates happen to produce,
-  rather than searching scrag's own 8-12 ft preferred range directly.
 - **Single flat price per product**, not a species- or size-tiered price (e.g. real
   peeler pricing varies with SED — 16"+ logs command more than 12" logs). The current
   model uses one `pricePerTon` regardless of size within the eligible SED range.

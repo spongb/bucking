@@ -44,13 +44,21 @@ let PRICES = {
 // ─── Weight-Priced Products (Peeler / Scrag) ──────────────────────────────
 // WV northern-hardwood market, 2026: yellow-poplar dominates the peeler
 // market; scrag is the mixed-hardwood #3/pallet market. Both are sold by the
-// green ton, so value comes from cubic volume x species green density, not
-// from Doyle BF (Doyle drastically underscales small/low-grade logs).
-// Preferred peeler bolt lengths (longest first, so the DP/scoreSegment length
-// search prefers the longest bolt that fits, same preference order as the
-// sawlog standard lengths). These already include the mill's trim allowance,
-// so no separate trim is subtracted for peeler segments.
-const PEELER_LENGTHS_FT = [10.5, 9.5, 8.5];
+// green ton, with YP peelers using a fitted weight equation and other products
+// using cubic volume x species green density rather than Doyle BF.
+// Columbia's sheet specifies 8'10" and 17'6" peeler logs. These include the
+// mill's trim allowance, so no separate trim is subtracted for peeler pieces.
+const PEELER_LENGTHS_FT = [17.5, 8 + 10 / 12];
+// Columbia YP peeler regression. Dia is the small-end diameter in inches,
+// Length is feet, and Butt is 1 for the first butt log or 0 for an upper log.
+function yellowPoplarPeelerWeightLb(diaIn, lengthFt, isButtLog) {
+    const butt = isButtLog ? 1 : 0;
+    return Math.max(0, -744.5 - 40.1 * diaIn + 5.23 * diaIn ** 2
+        + 87.5 * lengthFt - 353.4 * butt + 32.1 * butt * diaIn);
+}
+// Scrag is cut in 7- or 8-foot multiples. The 6" small-end and 15" large-end
+// limits reflect the logger/mill operating range described in the field spec.
+const SCRAG_LENGTHS_FT = [16, 14, 8, 7];
 
 const PRODUCT_SPECS = {
     peeler: {
@@ -61,16 +69,19 @@ const PRODUCT_SPECS = {
         // here so peeler bucking choices are actually exercisable/testable in
         // the optimizer. Revert to 107 once real DP behavior isn't needed.
         pricePerTon: 500,
-        eligibleSpecies: ['YELLOW_POPLAR'],
-        minSED: 12, maxSED: null,
-        notes: 'Yellow-poplar only. Straight & round, pith centered, no sweep/rot/splits, min SED 12"-14".'
+        eligibleSpecies: ['YELLOW_POPLAR', 'CUCUMBER', 'MAGNOLIA', 'ASPEN',
+            'BASSWOOD', 'BUCKEYE', 'SWEETGUM', 'SYCAMORE'],
+        minSED: 8, maxSED: 24,
+        notes: 'Columbia accepted species; minimum SED 8" inside bark and maximum scaling diameter 24" inside bark.'
     },
     scrag: {
         label: 'Scrag',
         pricePerTon: 30, // avg of $20-$40/ton, WV/PA #3-pallet mixed hardwood
         eligibleSpecies: null, // any species — mixed-hardwood market
-        minSED: 6, maxSED: 14,
-        notes: '#3/pallet grade. Sound wood only (no rot/metal); knots & moderate sweep tolerated.'
+        excludedSpecies: ['PINE', 'SPRUCE', 'FIR', 'BASSWOOD'],
+        minSED: 6, maxSED: 15,
+        rejectDefectTypes: ['rot', 'end_check'],
+        notes: '#3/pallet grade. No pine, spruce, fir, or basswood; 6"-15" diameter range; no rot, splits, or banana-shaped sweep.'
     }
 };
 
@@ -84,7 +95,9 @@ const SPECIES_DENSITY = {
     YELLOW_POPLAR: 38, RED_OAK: 62, WHITE_OAK: 64, BLACK_OAK: 56, SCARLET_OAK: 58,
     CHESTNUT_OAK: 54, HARD_MAPLE: 56, SUGAR_MAPLE: 56, RED_MAPLE: 50, ASH: 48,
     BLACK_CHERRY: 45, BLACK_WALNUT: 58, BASSWOOD: 47, HICKORY: 66, BEECH: 58,
-    BIRCH: 57, YELLOW_BIRCH: 57, LOCUST: 65, CUCUMBER: 44, DEFAULT: 50
+    BIRCH: 57, YELLOW_BIRCH: 57, LOCUST: 65, CUCUMBER: 44,
+    PINE: 45, SPRUCE: 30, FIR: 30, MAGNOLIA: 38, ASPEN: 37, BUCKEYE: 38,
+    SWEETGUM: 50, SYCAMORE: 45, DEFAULT: 50
 };
 
 // Friendly display name by canonical species key — used anywhere a species
@@ -96,7 +109,9 @@ const SPECIES_DISPLAY_NAME = {
     HARD_MAPLE: 'Hard Maple', SUGAR_MAPLE: 'Sugar Maple', RED_MAPLE: 'Red Maple',
     ASH: 'Ash', BLACK_CHERRY: 'Black Cherry', BLACK_WALNUT: 'Black Walnut',
     BASSWOOD: 'Basswood', HICKORY: 'Hickory', BEECH: 'Beech', BIRCH: 'Birch',
-    YELLOW_BIRCH: 'Yellow Birch', LOCUST: 'Black Locust', CUCUMBER: 'Cucumber Tree'
+    YELLOW_BIRCH: 'Yellow Birch', LOCUST: 'Black Locust', CUCUMBER: 'Cucumber Tree',
+    PINE: 'Pine', SPRUCE: 'Spruce', FIR: 'Fir', MAGNOLIA: 'Magnolia',
+    ASPEN: 'Aspen', BUCKEYE: 'Buckeye', SWEETGUM: 'Sweetgum', SYCAMORE: 'Sycamore'
 };
 
 // Maps both dataset species codes (e.g. "YP") and full names (e.g. "YELLOW POPLAR")
@@ -118,6 +133,8 @@ const SPECIES_CODE_MAP = {
     HK: 'HICKORY', 'SHAGBARK HICKORY': 'HICKORY', HICKORY: 'HICKORY',
     BEECH: 'BEECH',
     BIRCH: 'BIRCH', 'YELLOW BIRCH': 'YELLOW_BIRCH',
+    PINE: 'PINE', SPRUCE: 'SPRUCE', FIR: 'FIR', MAGNOLIA: 'MAGNOLIA',
+    ASPEN: 'ASPEN', BUCKEYE: 'BUCKEYE', SWEETGUM: 'SWEETGUM', SYCAMORE: 'SYCAMORE',
     LOCUST: 'LOCUST', CUC: 'CUCUMBER', CUCUMBER: 'CUCUMBER'
 };
 
@@ -144,7 +161,7 @@ function cubicVolumeFt3(buttDiaIn, topDiaIn, lengthFt) {
 // Values a segment as a weight-priced product (peeler/scrag) instead of a
 // graded sawlog. Returns an ineligible result (value 0, reason set) rather
 // than throwing, so a mismatched product choice just teaches a $0 lesson.
-function scoreAsProduct(product, buttDiaIn, topDiaIn, lengthFt, species) {
+function scoreAsProduct(product, buttDiaIn, topDiaIn, lengthFt, species, defects = [], startFt = 0, endFt = Infinity) {
     const spec = PRODUCT_SPECS[product];
     const speciesKey = normalizeSpecies(species);
 
@@ -152,17 +169,34 @@ function scoreAsProduct(product, buttDiaIn, topDiaIn, lengthFt, species) {
         return { grade: spec.label, pricePerBF: 0, value: 0, ineligible: true,
                  reason: `${displaySpeciesName(species)} is not accepted as ${spec.label} in this market.` };
     }
+    if (spec.excludedSpecies?.includes(speciesKey)) {
+        return { grade: spec.label, pricePerBF: 0, value: 0, ineligible: true,
+                 reason: `${displaySpeciesName(species)} is not accepted as ${spec.label} in this market.` };
+    }
     if (topDiaIn < spec.minSED || (spec.maxSED && topDiaIn > spec.maxSED)) {
         return { grade: spec.label, pricePerBF: 0, value: 0, ineligible: true,
                  reason: `Small-end diameter ${topDiaIn.toFixed(1)}" is outside the ${spec.minSED}"${spec.maxSED ? '-' + spec.maxSED + '"' : '"+'} range for ${spec.label}.` };
     }
+    const rejectedDefect = spec.rejectDefectTypes?.find(type => defects.some(d =>
+        d.type === type && d.startFt < endFt && d.endFt > startFt));
+    if (rejectedDefect) {
+        const label = rejectedDefect === 'end_check' ? 'split' : rejectedDefect;
+        return { grade: spec.label, pricePerBF: 0, value: 0, ineligible: true,
+                 reason: `${spec.label} requires sound wood without ${label}.` };
+    }
 
     const density = SPECIES_DENSITY[speciesKey] ?? SPECIES_DENSITY.DEFAULT;
     const volumeFt3 = cubicVolumeFt3(buttDiaIn, topDiaIn, lengthFt);
-    const tons = (volumeFt3 * density) / 2000;
+    const usesYpRegression = product === 'peeler' && speciesKey === 'YELLOW_POPLAR';
+    const weightLb = usesYpRegression
+        ? yellowPoplarPeelerWeightLb(topDiaIn, lengthFt, startFt === 0)
+        : volumeFt3 * density;
+    const tons = weightLb / 2000;
     const value = Math.round(tons * spec.pricePerTon);
 
-    return { grade: spec.label, pricePerBF: null, value, tons: +tons.toFixed(2), ineligible: false };
+    return { grade: spec.label, pricePerBF: null, value, tons: +tons.toFixed(2),
+        weightLb: +weightLb.toFixed(1), weightMethod: usesYpRegression ? 'YP regression' : 'green density',
+        ineligible: false };
 }
 
 // ─── Sweep Deduction Rule ─────────────────────────────────────────────────
@@ -1291,7 +1325,8 @@ function scoreSegment(startFt, endFt, defects, product = 'sawlog') {
     // is subtracted, unlike sawlog standard lengths.
     const isPeeler        = product === 'peeler';
     const trim            = isPeeler ? 0 : getTrim();
-    const standardLengths = isPeeler ? PEELER_LENGTHS_FT : [16, 14, 12, 10, 8];
+    const standardLengths = isPeeler ? PEELER_LENGTHS_FT
+        : product === 'scrag' ? SCRAG_LENGTHS_FT : [16, 14, 12, 10, 8];
     const physicalLen = endFt - startFt;
 
     // Bole-end checks consume usable log length — deduct their span from maxNomLen.
@@ -1320,11 +1355,12 @@ function scoreSegment(startFt, endFt, defects, product = 'sawlog') {
         const clearFaces   = getClearFaces(startFt, startFt + nomLen, defects);
 
         if (product === 'peeler' || product === 'scrag') {
-            // Weight-priced products: value from cubic volume x species density,
-            // not Doyle BF (Doyle drastically underscales small/low-grade logs).
+            // Weight-priced products use the YP regression where available;
+            // other species/products use cubic volume x green density, not Doyle BF.
             const buttFrac    = startFt / totalLength;
             const buttDiaAtCut = buttDia - (buttDia - topDia) * buttFrac;
-            const gradeInfo = scoreAsProduct(product, buttDiaAtCut, effectiveDia, nomLen, currentTree?.species);
+            const gradeInfo = scoreAsProduct(product, buttDiaAtCut, effectiveDia, nomLen, currentTree?.species,
+                defects, startFt, startFt + nomLen);
             return { startFt, endFt, physicalLen, nomLen, scalingDia, clearFaces,
                      volumeBF: null, gradeInfo, value: gradeInfo.value };
         }
@@ -1403,6 +1439,7 @@ function computeOptimal() {
     const candidateLengths = [
         ...[8, 10, 12, 14, 16].map(len => ({ len, includeTrim: true })),
         ...PEELER_LENGTHS_FT.map(len => ({ len, includeTrim: false })),
+        ...SCRAG_LENGTHS_FT.map(len => ({ len, includeTrim: true })),
     ];
     // One-inch states preserve the 4-inch trim exactly and make the returned
     // cut positions practical to score and display without six-inch rounding.
