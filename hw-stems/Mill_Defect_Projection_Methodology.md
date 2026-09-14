@@ -179,5 +179,66 @@ Additional fields (`sourceMillLogSide`, `memberSizeClasses`, `isMerged`, `matchL
 - The `gt6in` footprint ceiling (12in) is an explicit, undocumented-in-source-data assumption (Section 4.2) and may need revision.
 - Several species codes remain unconfirmed (see `Stem_Reconstruction_Methodology.md` Section 1.1): BO, SO, AB, SW, RM, SG, SY, DLM, SPS. Stems using these codes always fall back to diameter+B/U matching, which is expected but should be tracked.
 - The 5-candidate length-proximity shortlist size (Section 3) has not been tuned against alternative values.
-- No validation has yet been done comparing projected defect rates/positions against any independent ground truth.
 - Cross-side merging (i.e., whether a defect visible on 2 adjacent sides should ever be treated as one physical feature) was explicitly excluded from this methodology per confirmed design decision — same-side merging only.
+- See Section 12 for an open question on whether matching should be normalized per foot of log length.
+
+---
+
+## 12. Distribution Validation (2026-09-13)
+
+### 12.1 What was checked
+
+A validation pass compared the defect distribution of the projected stem segments against the real mill-study log pool (`Defect Data.xlsx`), stratified by diameter class and B/U position. This surfaced two distinct problems, both now fixed. It also confirmed the core projection math itself was never at fault: a fidelity check (does a projected segment's `defectCounts` exactly equal its cited `sourceMillLogRowId` row's counts?) passed on every segment throughout the investigation.
+
+### 12.2 Problem 1 — stale source pool (data provenance)
+
+`Defect Data.xlsx` was not tracked in git prior to this investigation. Its on-disk file-modification timestamp was found to be ~3h46m *after* the `realization.generatedAt` timestamp recorded inside the original `Millstudy_Stems.json`, meaning the spreadsheet had been edited some time after that file was generated. There is no way to recover the exact spreadsheet state that produced the original file, so its output cannot be reconciled or reproduced.
+
+**Fix:** `Defect Data.xlsx` is now committed to git, so this cannot silently recur — any future edit is visible in history, and any generated output can be tied to an exact commit of the source spreadsheet.
+
+**Consequence for existing data:** the original file was renamed to `Millstudy_Stems_original_untracked-pool.json` rather than deleted or overwritten, since it may still be useful for other purposes, but it should not be treated as reconcilable against the current `Defect Data.xlsx`. `Millstudy_Stems.json` (the name consumed by `script.js`) now refers to a fresh realization regenerated against the current, tracked spreadsheet, reusing the same stem/segment geometry (heights, lengths, B/U position, diameter class — all independent of the mill defect pool) and redrawing only the mill-log matching and defect placement.
+
+### 12.3 Problem 2 — tie-breaking bias in candidate selection
+
+Independent of the stale-pool issue, the candidate-selection step (Section 3) has an implicit tie-breaking hazard: each diameter-class sheet in `Defect Data.xlsx` is internally sorted by clear-face count, and mill log lengths cluster heavily on round numbers, so most length-proximity queries land on a large tie group (candidates at equal distance from the target length) rather than a clean ranking. Within a tie group, row order and total defect count are strongly negatively correlated (r ≈ −0.73 to −0.85 across sampled groups) — i.e., the worst-defect logs are listed first within a tied length.
+
+Any implementation that ranks candidates with a **stable sort** (Python's default, and most language/library default sorts) will silently prefer the first-listed — and therefore highest-defect — row whenever a tie exists, without that bias appearing anywhere in the code as a deliberate choice. This is very easy to introduce unintentionally and does not show up as a fidelity failure, since each drawn segment's counts still exactly match a real row.
+
+**Fix:** shuffle the eligible candidate pool before ranking by length distance, on every draw, so ties break randomly instead of favoring sheet order. Confirmed in isolated testing: with a stable sort, a from-scratch reconstruction of the documented "5-nearest, uniform draw" rule overshot the pool mean by ~96% (7.87 vs. 4.01); with randomized tie-breaking, the same rule overshoots by only ~9-15% (see 12.4). Widening the candidate window (5 → 15 → 20) or capping reuse per row, tested in isolation with correct tie-breaking, made negligible additional difference — tie-breaking was the dominant effect, not window size.
+
+### 12.4 Residual ~12-15% overshoot — expected, not a bug
+
+Even with both fixes applied, projected segments run modestly higher than the pool baseline (confirmed stable across 15 independent re-realizations: mean 4.48, σ=0.14, vs. pool mean 4.01 — about +12%; a single regenerated realization measured +15%). This is attributable to the length-proximity matching design itself:
+
+- Reconstructed stem segments trend slightly longer on average than the mill pool (~11.5 ft vs. ~10.85 ft).
+- The real mill data has a mild positive correlation between log length and total defect count (r ≈ 0.14).
+
+Matching on absolute length therefore pulls very slightly toward the higher-defect side of the pool. This is a small, understood, and stable effect — not a remaining implementation bug.
+
+### 12.5 Final comparison table (post-fix, current `Millstudy_Stems.json` vs. current `Defect Data.xlsx`)
+
+Overall: pool mean 4.008 / median 2, vs. projected mean 4.617 / median 2.0 (4-clear-face share 28.8% vs. 29.2%; 0-clear-face share 12.7% vs. 14.7%).
+
+| Diameter class | Pool n | Pool mean | Proj n | Proj mean | Gap |
+|---|---|---|---|---|---|
+| 10in | 340 | 7.559 | 278 | 7.978 | +5.5% |
+| 11in | 437 | 5.995 | 104 | 6.731 | +12.3% |
+| 12in | 519 | 5.145 | 102 | 5.353 | +4.0% |
+| 13in | 621 | 4.395 | 108 | 3.398 | **−22.7%** |
+| 14in | 515 | 3.571 | 101 | 3.644 | +2.0% |
+| 15in | 470 | 3.115 | 92 | 2.663 | −14.5% |
+| 16in | 388 | 2.415 | 94 | 2.372 | −1.8% |
+| 17+in | 889 | 2.161 | 287 | 2.495 | +15.5% |
+
+| B/U | Pool mean | Proj mean | Gap |
+|---|---|---|---|
+| B (butt) | 1.749 | 1.794 | +2.6% |
+| U (upper) | 5.233 | 5.774 | +10.3% |
+
+Every diameter class falls within roughly ±15% of its pool baseline except **13in, at −22.7%**, which is the one bucket worth watching on a future re-realization (n=108 for that bucket, so this could still be ordinary bootstrap variance — the 15-rep stability check in 12.4 was only run at the aggregate level, not per-bucket). A per-diameter-class x B/U breakdown was also computed and showed much larger swings (up to ±100%), but at n=14-27 per cell that is expected small-sample bootstrap noise, not a signal.
+
+### 12.6 Open question — length-normalized matching (not yet resolved)
+
+Should the matching step normalize by length (e.g., match on defects-per-foot rather than raw defect count, or scale the drawn counts by the ratio of segment length to source length) to eliminate the residual ~12-15% overshoot described in 12.4? Or is matching absolute defect counts from a length-proximate real log the intended behavior, on the theory that defect count doesn't scale linearly with length anyway?
+
+This has not been decided and the matching logic has **not** been changed to address it. It depends on how the downstream projections are actually consumed (e.g., whether absolute defect count or defect density is the thing that needs to be realistic for the bucking trainer's purposes) — flagging for whoever owns that modeling choice rather than guessing.
