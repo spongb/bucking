@@ -1,0 +1,16 @@
+Diameter Class,Real Mill Logs (n),Real Mill Logs Mean Defects,Real Mill Logs Median Defects,Projected Segments (n),Projected Segments Mean Defects,Projected Segments Median Defects,Gap (%)
+10in,340,7.559,5.0,278,7.978,5.0,5.5
+11in,437,5.995,4,104,6.731,4.0,12.3
+12in,519,5.145,3,102,5.353,3.0,4.0
+13in,621,4.395,2,108,3.398,2.0,-22.7
+14in,515,3.571,2,101,3.644,2,2.0
+15in,470,3.115,1.0,92,2.663,0.0,-14.5
+16in,388,2.415,1.0,94,2.372,1.0,-1.8
+17+in,889,2.161,1,287,2.495,1,15.5
+Overall,4179,4.008,2,1166,4.617,2.0,15.2
+
+B/U and 13in-Upper Breakdown
+Group,Real Mill Logs Mean Defects,Projected Segments Mean Defects,Gap (%),Note
+B (Butt),1.749,1.794,2.6,
+U (Upper),5.233,5.774,10.3,
+13in-Upper,5.461,3.833,-29.8,"Gap is due to species mix among matched logs, not sampling noise or a matching error (see Methodology doc Sec. 12.7.2)"

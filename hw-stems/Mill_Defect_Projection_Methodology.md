@@ -242,3 +242,46 @@ Every diameter class falls within roughly ±15% of its pool baseline except **13
 Should the matching step normalize by length (e.g., match on defects-per-foot rather than raw defect count, or scale the drawn counts by the ratio of segment length to source length) to eliminate the residual ~12-15% overshoot described in 12.4? Or is matching absolute defect counts from a length-proximate real log the intended behavior, on the theory that defect count doesn't scale linearly with length anyway?
 
 This has not been decided and the matching logic has **not** been changed to address it. It depends on how the downstream projections are actually consumed (e.g., whether absolute defect count or defect density is the thing that needs to be realistic for the bucking trainer's purposes) — flagging for whoever owns that modeling choice rather than guessing.
+
+---
+
+## 12.7 Follow-up: the 13in outlier, resolved
+
+The 13in diameter class was the one bucket in the Section 12.5 table falling outside the general ±15% pattern (−22.7% vs. pool). A follow-up investigation, scoped narrowly to this bucket, resolved it into two separate findings.
+
+### 12.7.1 The aggregate 13in gap is noise — confirmed, no action needed
+
+15 independent realizations of the (corrected) matching step, scoped to the 13in bucket alone (n=108 queries/rep), gave:
+
+- Mean of means: 4.00 (pool baseline: 4.395) — a −8.9% average gap, far smaller than the single-realization −22.7%
+- Per-rep gaps ranged from **−20.1% to +5.8%**, landing on both sides of the pool baseline across the 15 reps
+
+A gap that bounces to both sides of zero across repeated realizations is ordinary small-sample bootstrap variance (n=108), not a stable effect. The original −22.7% reading was simply an unlucky draw near the tail of this distribution. **No action needed on the 13in aggregate finding.**
+
+### 12.7.2 A distinct, one-sided finding: 13in-Upper species composition
+
+Splitting the same 15 reps by B/U revealed something qualitatively different from noise: the **13in-Upper (BU='U') sub-slice undershot its pool baseline (5.461) in all 15 of 15 realizations**, with gaps ranging from about −8% to −30% and never crossing to positive. A truly noisy metric lands on both sides of baseline over repeated trials; landing on the same side every single time points to a real, directional mechanism.
+
+Two candidate mechanisms from Section 12.4's general explanation were checked and ruled out:
+
+- **Length-matching direction:** 13in-U segments trend *longer* than the 13in-U pool average (11.18 ft vs. 10.56 ft), and the 13in-U pool's own length↔defect correlation is positive (r = +0.240, even stronger than the whole-pool +0.140). This predicts a slight *overshoot*, not the observed undershoot — the general length-matching artifact from 12.4 does not apply here and in fact runs the wrong direction.
+- **Fallback-pool anomaly:** only 11 of 90 queries (12%) used the diameter+BU fallback pool; by construction that pool is identical to the full 13in-U pool (mean 5.461), so it cannot itself be the source of a skew.
+
+The actual mechanism is **species composition** in the 79 (of 90) queries that used species-specific primary matching. Species-specific 13in-U sub-pool means vary widely, and low-defect species were drawn far more often than high-defect ones:
+
+| Species | Sub-pool mean | Times drawn |
+|---|---|---|
+| YP | 3.585 | 35 |
+| CH | 2.042 | 9 |
+| CO | 4.364 | 9 |
+| HM | 3.833 | 5 |
+| SM | 6.636 | 13 |
+| RO | 5.235 | 2 |
+| WO | 7.526 | 4 |
+| BO | 8.262 | 2 |
+
+YP alone accounts for 39% of draws at a sub-pool mean (3.585) well below the 5.461 pool-wide average, while the two highest-mean species (WO, BO) were drawn only 4 and 2 times respectively. Weighting each species' sub-pool mean by its actual draw count gives an expected mean of **4.51** — a **−17.4%** gap versus the 5.461 pool-wide baseline — which closely matches the **−18.9%** average gap actually observed across the 15 reps (mean of means 4.43). This arithmetic reconciliation confirms species composition, not noise or a matching bug, fully explains the one-sided 13in-U undershoot.
+
+- **Open interpretive question (unresolved, distinct from Section 12.6):** is the species mix among stems that produce a 13in-Upper segment an accurate reflection of the true species composition of the reconstructed stand at that diameter/position — in which case species-aware matching is correctly surfacing a real property of the Utilization Study data — or is it an artifact of how the bucking/stem-reconstruction process selects which stems yield a 13in-Upper segment, in which case the bucking/stem-selection logic (not the defect-matching logic covered in this document) would be the place to look? This has not been investigated and requires looking at the stem reconstruction pipeline (`Stem_Reconstruction_Methodology.md`), not this document.
+
+**Summary:** this investigation thread — original distribution comparison, stale-pool fix, tie-breaking fix, 13in aggregate noise check, and the 13in-Upper species-composition finding — is now fully documented and closed. No further action is pending except the two explicitly-flagged open questions: length-normalized matching (Section 12.6) and the species-skew interpretation above (Section 12.7.2).
