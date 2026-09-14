@@ -8,6 +8,7 @@ let dragIdx = -1;
 let totalLength, buttDia, topDia, currentTree;
 let currentDefects = [];
 let logRotation = 0; // 0–3: which face index is currently on top
+let viewMode = '2d'; // '2d' | '3d'
 
 // ─── Branding Colors ───────────────────────────────────────────────────────
 // Centralized color palette. These should align with variables in style.css
@@ -263,6 +264,17 @@ function normalizeMillStudyStem(stem) {
         });
     });
 
+    // Real diameter-at-height samples and sweep centerline offsets, carried
+    // through so the 3D viewer can build actual taper/bend geometry instead
+    // of a straight-line interpolation between butt and top diameter.
+    const profile = (stem.profile || []).map(p => ({ h: p.heightFt, d: p.diameterIn }));
+    const sweepCurve = [];
+    (stem.meta?.shapeDefects || []).forEach(def => {
+        (def.curvePoints || []).forEach(cp => sweepCurve.push({ h: cp.heightFt, off: cp.lateralOffsetIn }));
+    });
+    // Adjacent shape-defects repeat the boundary height; drop the duplicate.
+    const sweepCurveDeduped = sweepCurve.filter((p, i) => i === 0 || Math.abs(p.h - sweepCurve[i - 1].h) > 1e-6);
+
     return {
         treeNum: stem.stemId,
         species: stem.species,
@@ -271,6 +283,8 @@ function normalizeMillStudyStem(stem) {
         butt: stem.butt,
         top: stem.top ?? stem.profile?.[stem.profile.length - 1]?.diameterIn ?? stem.butt,
         defects,
+        profile,
+        sweepCurve: sweepCurveDeduped,
     };
 }
 
@@ -414,6 +428,7 @@ function updateRotationDisplay() {
 // ─── Canvas Setup ──────────────────────────────────────────────────────────
 const canvas        = document.getElementById('logCanvas');
 const ctx           = canvas.getContext('2d');
+const stem3dCanvas  = document.getElementById('stem3dCanvas');
 const optCanvas     = document.getElementById('optCanvas');
 const optCtx        = optCanvas    ? optCanvas.getContext('2d')    : null;
 const faceCanvas    = document.getElementById('faceCanvas');
@@ -439,6 +454,10 @@ function resizeCanvases() {
     faceCanvas.width  = w;
     faceCanvas.height = Math.max(72, Math.round(w * 88 / 800));
 
+    stem3dCanvas.width  = w;
+    stem3dCanvas.height = canvas.height;
+    resizeStem3D();
+
     if (optCanvas && document.getElementById('optContainer').style.display !== 'none') {
         optCanvas.width      = w;
         optCanvas.height     = Math.max(160, Math.round(w * 200 / 800));
@@ -460,8 +479,45 @@ window.addEventListener('resize', () => {
 // redrawCanvases: redraws both canvases without touching the segments panel —
 // safe to call from rotation handlers after scoring so score text is preserved.
 function redrawCanvases() {
-    drawLogGraphic(ctx, canvas, cuts);
+    if (viewMode === '3d') {
+        updateStem3D();
+    } else {
+        drawLogGraphic(ctx, canvas, cuts);
+        drawHoverGuide(ctx, canvas);
+    }
     drawFaceMap(faceCtx, faceCanvas, currentDefects, cuts);
+}
+
+// ─── Hover Guide (2D) ───────────────────────────────────────────────────────
+// A precise dashed line at the exact snapped position a click would cut —
+// the chainsaw icon alone doesn't pin down a location clearly enough, so
+// this line (not the icon) is the thing to actually read before clicking.
+let hoverFt = null;
+function drawHoverGuide(context, can) {
+    if (hoverFt === null || !totalLength) return;
+    if (cuts.some(c => Math.abs(c - hoverFt) < 0.08)) return; // a real cut marker already covers this spot
+    const scale = getScale(can);
+    const Hs = can.height / 200;
+    const x = hoverFt * scale;
+
+    context.save();
+    context.setLineDash([5, 4]);
+    context.strokeStyle = 'rgba(0,40,85,0.6)';
+    context.lineWidth = Math.max(1.5, 2 * Hs);
+    context.beginPath();
+    context.moveTo(x, 20 * Hs); context.lineTo(x, 180 * Hs);
+    context.stroke();
+    context.restore();
+
+    const dia = buttDia - (buttDia - topDia) * (hoverFt / totalLength);
+    const label = `${formatFeetInches(hoverFt)}  |  ⌀ ${dia.toFixed(1)}"`;
+    context.font = `bold ${Math.max(9, Math.round(12 * Hs))}px Arial`;
+    context.textAlign = 'center';
+    context.lineWidth = Math.max(2, 3 * Hs);
+    context.strokeStyle = '#fff';
+    context.strokeText(label, x, 15 * Hs);
+    context.fillStyle = COLORS.wvuBlue;
+    context.fillText(label, x, 15 * Hs);
 }
 
 function drawLog() {
@@ -972,8 +1028,25 @@ function drawDefects(context, defects, scale, yCenter, pxPerIn) {
     });
 }
 
-// ─── Mouse Event Handlers ──────────────────────────────────────────────────
+// ─── Chainsaw Cursor ────────────────────────────────────────────────────────
+// Replaces the plain pointer with a chainsaw icon whenever the mouse is over
+// the stem (2D or 3D), tip-down over the cut location — bucking is cutting,
+// not clicking, so the cursor plays along.
+const chainsawEl = document.getElementById('chainsawCursor');
+function showChainsaw(clientX, clientY, engaged) {
+    if (!chainsawEl) return;
+    chainsawEl.style.left = clientX + 'px';
+    chainsawEl.style.top  = clientY + 'px';
+    chainsawEl.style.display = 'block';
+    chainsawEl.classList.toggle('active', !!engaged);
+}
+function hideChainsaw() {
+    if (chainsawEl) chainsawEl.style.display = 'none';
+}
+
+// ─── Mouse Event Handlers (2D view) ────────────────────────────────────────
 canvas.addEventListener('mousedown', (e) => {
+    if (viewMode !== '2d') return;
     const rect = canvas.getBoundingClientRect();
     const x    = (e.clientX - rect.left) * totalLength / rect.width;
 
@@ -991,6 +1064,7 @@ canvas.addEventListener('mousedown', (e) => {
 });
 
 window.addEventListener('mousemove', (e) => {
+    if (viewMode !== '2d') return;
     const rect      = canvas.getBoundingClientRect();
     const relX      = e.clientX - rect.left;
     const relY      = e.clientY - rect.top;
@@ -999,10 +1073,20 @@ window.addEventListener('mousemove', (e) => {
 
     if (dragIdx !== -1) {
         cuts[dragIdx] = Math.round(ft * 12) / 12; // snap to the nearest inch, matching the DP's grid
+        hoverFt = null;
         drawLog();
     } else if (overCanvas) {
-        const idx = cuts.findIndex(c => Math.abs(c - ft) < 0.4);
-        canvas.style.cursor = (idx !== -1) ? 'ew-resize' : 'crosshair';
+        const snap = Math.round(ft * 12) / 12;
+        if (snap !== hoverFt) { hoverFt = snap; redrawCanvases(); }
+    } else if (hoverFt !== null) {
+        hoverFt = null;
+        redrawCanvases();
+    }
+
+    if (overCanvas || dragIdx !== -1) {
+        showChainsaw(e.clientX, e.clientY, dragIdx !== -1);
+    } else {
+        hideChainsaw();
     }
 
     // Hover tooltip
@@ -1023,10 +1107,15 @@ window.addEventListener('mousemove', (e) => {
 canvas.addEventListener('mouseleave', () => {
     const tip = document.getElementById('hoverTooltip');
     if (tip && dragIdx === -1) tip.style.display = 'none';
+    if (dragIdx === -1) {
+        hideChainsaw();
+        if (hoverFt !== null) { hoverFt = null; redrawCanvases(); }
+    }
 });
 
 // Right-click on a cut marker to remove it
 canvas.addEventListener('contextmenu', (e) => {
+    if (viewMode !== '2d') return;
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const ft   = (e.clientX - rect.left) * totalLength / rect.width;
@@ -1035,6 +1124,7 @@ canvas.addEventListener('contextmenu', (e) => {
 });
 
 window.addEventListener('mouseup', () => {
+    if (viewMode !== '2d') return;
     if (dragIdx !== -1) {
         cuts.sort((a, b) => a - b);
         dragIdx = -1;
@@ -1785,6 +1875,667 @@ document.getElementById('datasetSelect').addEventListener('change', event => {
     updateDatasetStatus();
     loadLog(pickLog());
 });
+
+// ─── View Mode (2D / 3D) ────────────────────────────────────────────────────
+document.getElementById('viewModeSelect').addEventListener('change', event => {
+    viewMode = event.target.value;
+    const is3D = viewMode === '3d';
+    canvas.style.display       = is3D ? 'none' : 'block';
+    stem3dCanvas.style.display = is3D ? 'block' : 'none';
+    const badge = document.getElementById('stem3dBadge');
+    if (badge) {
+        badge.style.display = is3D ? 'block' : 'none';
+        badge.textContent = `diameter shown ×${RADIUS_SCALE} for visibility — read true inches from the labels`;
+    }
+    hideChainsaw();
+    if (is3D) initStem3D();
+    setStem3DActive(is3D);
+    resizeCanvases();
+    redrawCanvases();
+});
+
+// ─── 3D Stem Viewer (beta) ──────────────────────────────────────────────────
+// Builds real taper/sweep geometry from the same currentTree/currentDefects
+// data the 2D view uses — real profile+sweepCurve when the mill-study dataset
+// supplies them, a linear-taper/defect-driven fallback otherwise. The stem
+// lies along the X axis, butt at x=0 (left) — same convention as the 2D
+// canvas — so the two views read as the same stem from two angles.
+let stem3d = null; // lazily-created { renderer, scene, camera, raycaster, ... }
+
+function initStem3D() {
+    if (stem3d) return;
+    const renderer = new THREE.WebGLRenderer({ canvas: stem3dCanvas, antialias: true, alpha: false });
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    renderer.setClearColor(0xeaf0fa, 1); // wvuSky, so it reads as the same app chrome
+
+    const scene = new THREE.Scene();
+    // Orthographic, not perspective: a perspective camera close enough to
+    // frame the whole stem end-to-end (a 38° FOV a bit over half the stem's
+    // own length away) foreshortens the far ends noticeably more than the
+    // near middle, which reads as the log's ends being pinched/bowed — a
+    // real perspective effect, not a geometry bug, but the wrong look for
+    // something meant to be measured. Orthographic keeps radius and spacing
+    // visually true across the whole length, and — because it has no notion
+    // of "distance", only a zoom factor applied uniformly — a mouse-wheel
+    // zoom scales the stem and its labels together by the same factor,
+    // instead of the two responding differently to a change in distance.
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.05, 2000);
+
+    const stemGroup   = new THREE.Group();  // rotates for Roll Up/Down (logRotation)
+    const logGroup    = new THREE.Group();  // bark + caps
+    const defectGroup = new THREE.Group();
+    const cutGroup    = new THREE.Group();
+    const rulerGroup  = new THREE.Group();  // foot ticks + true (unexaggerated) diameter labels
+
+    // Live preview of where a click would cut — a bright ring that tracks the
+    // pointer, distinct from the solid red rings that mark committed cuts.
+    const hoverGroup = new THREE.Group();
+    const hoverRing = new THREE.Mesh(
+        new THREE.CylinderGeometry(1, 1, 0.05, SEGMENTS),
+        new THREE.MeshBasicMaterial({ color: 0x2fb8c4, transparent: true, opacity: 0.85 })
+    );
+    hoverRing.geometry.rotateZ(Math.PI / 2);
+    hoverGroup.add(hoverRing);
+    hoverGroup.visible = false;
+
+    stemGroup.add(logGroup, defectGroup, cutGroup, rulerGroup, hoverGroup);
+    scene.add(stemGroup);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const key = new THREE.DirectionalLight(0xfff2e0, 1.05);
+    key.position.set(5, 8, 9);
+    scene.add(key);
+    const fill = new THREE.DirectionalLight(0x9fd7ff, 0.35);
+    fill.position.set(-6, -3, -6);
+    scene.add(fill);
+
+    const barkMat = new THREE.MeshStandardMaterial({ map: makeBarkTexture(), roughness: 0.92, metalness: 0.02 });
+    const capMat  = new THREE.MeshStandardMaterial({ map: makeEndGrainTexture(), roughness: 0.75, metalness: 0.02 });
+
+    stem3d = {
+        renderer, scene, camera, stemGroup, logGroup, defectGroup, cutGroup, rulerGroup, hoverGroup,
+        barkMat, capMat,
+        raycaster: new THREE.Raycaster(),
+        // azimuth 0 is not an arbitrary default: with the target centered on
+        // the stem's X axis, azimuth 0 makes the camera's screen-right exactly
+        // world +X (derivable from THREE's lookAt basis regardless of polar),
+        // which is what guarantees butt (x=0) reads on the left, top on the
+        // right, at any elevation. Orbiting away from 0 is fine for inspection;
+        // this is just the default the stem loads into.
+        azimuth: 0, polar: 1.2, dist: 40, target: new THREE.Vector3(0, 0, 0),
+        zoom: 1, framedLength: null, // orthographic zoom factor; framedLength gates auto-reframing
+        labelSprites: [], // every label sprite currently in the scene, for constant-pixel-size rescaling on zoom
+        dragging: false, dragMode: null, dragIdx: -1, dragPlane: new THREE.Plane(),
+        pointerDownPos: null, moved: false,
+        active: false, animHandle: null,
+    };
+    updateStem3DCamera();
+
+    const dom = renderer.domElement;
+    dom.addEventListener('pointerdown', onStem3DPointerDown);
+    dom.addEventListener('pointermove', onStem3DPointerMove);
+    window.addEventListener('pointerup', onStem3DPointerUp);
+    dom.addEventListener('pointerleave', () => {
+        if (stem3d.dragging) return;
+        hideChainsaw();
+        stem3d.hoverGroup.visible = false;
+        const tip = document.getElementById('hoverTooltip');
+        if (tip) tip.style.display = 'none';
+    });
+    dom.addEventListener('contextmenu', onStem3DContextMenu);
+    dom.addEventListener('wheel', onStem3DWheel, { passive: false });
+}
+
+function setStem3DActive(active) {
+    if (!stem3d) return;
+    stem3d.active = active;
+    if (active && !stem3d.animHandle) stem3DAnimate();
+    if (!active && stem3d.animHandle) { cancelAnimationFrame(stem3d.animHandle); stem3d.animHandle = null; }
+}
+
+function stem3DAnimate() {
+    if (!stem3d || !stem3d.active) return;
+    stem3d.animHandle = requestAnimationFrame(stem3DAnimate);
+    stem3d.renderer.render(stem3d.scene, stem3d.camera);
+}
+
+function resizeStem3D() {
+    if (!stem3d) return;
+    const w = stem3dCanvas.width, h = stem3dCanvas.height;
+    stem3d.renderer.setSize(w, h, false);
+    updateStem3DFrustum();
+}
+
+// Sizes the orthographic frustum to fit the current stem's length (plus a
+// margin for the ruler/labels) at the canvas's current aspect ratio, then
+// applies the user's zoom on top. Must be re-run whenever the canvas is
+// resized, a new (differently-sized) stem loads, or zoom changes — anything
+// that changes either "how much world" or "how much screen" is in play.
+function updateStem3DFrustum() {
+    const s = stem3d;
+    if (!s || !totalLength) return;
+    const aspect = stem3dCanvas.width / stem3dCanvas.height;
+    const halfWforLength = (totalLength * 1.15) / 2; // headroom for end caps past x=0/x=totalLength
+
+    // The canvas is wide and short (~4:1), so deriving vertical extent purely
+    // from halfWforLength/aspect can leave less height than the ruler+labels
+    // actually need below/above the log, clipping them. Compute the real
+    // content height instead: butt radius (largest, since taper only shrinks
+    // toward the top) plus the ruler baseline below it and the diameter/cut
+    // label headroom above it (see buildStem3DRuler's offsets).
+    const buttR = stem3DRadiusAt(0);
+    const neededHalfH = buttR + 2.8;
+
+    let halfW = halfWforLength, halfH = halfW / aspect;
+    if (halfH < neededHalfH) { halfH = neededHalfH; halfW = halfH * aspect; }
+
+    s.camera.left = -halfW; s.camera.right = halfW;
+    s.camera.top  = halfH;  s.camera.bottom = -halfH;
+    s.camera.zoom = s.zoom;
+    s.camera.updateProjectionMatrix();
+}
+
+function updateStem3DCamera() {
+    const s = stem3d;
+    const sp = Math.sin(s.polar), cp = Math.cos(s.polar);
+    s.camera.position.set(
+        s.target.x + s.dist * sp * Math.sin(s.azimuth),
+        s.target.y + s.dist * cp,
+        s.target.z + s.dist * sp * Math.cos(s.azimuth)
+    );
+    s.camera.lookAt(s.target);
+}
+
+// ─── Generated bark / end-grain textures (canvas-drawn, no image assets) ──
+function makeBarkTexture() {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 512;
+    const g = c.getContext('2d');
+    g.fillStyle = '#4a3220'; g.fillRect(0, 0, c.width, c.height);
+    for (let i = 0; i < 420; i++) {
+        const x = Math.random() * c.width, y = Math.random() * c.height;
+        const w = 2 + Math.random() * 3, h = 10 + Math.random() * 70;
+        const shade = 20 + Math.random() * 36;
+        g.fillStyle = `rgba(${20 + shade},${12 + shade * 0.6},${6 + shade * 0.35},${0.35 + Math.random() * 0.35})`;
+        g.beginPath(); g.ellipse(x, y, w, h, 0, 0, Math.PI * 2); g.fill();
+    }
+    for (let y = 0; y < c.height; y++) {
+        if (Math.random() < 0.5) continue;
+        g.strokeStyle = `rgba(0,0,0,${0.03 + Math.random() * 0.05})`;
+        g.beginPath(); g.moveTo(0, y); g.lineTo(c.width, y); g.stroke();
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    return tex;
+}
+function makeEndGrainTexture() {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 512;
+    const g = c.getContext('2d');
+    const cx = 256, cy = 256, maxR = 250;
+    g.fillStyle = '#6b4326'; g.beginPath(); g.arc(cx, cy, maxR, 0, Math.PI * 2); g.fill();
+    const rings = 26;
+    for (let i = rings; i >= 1; i--) {
+        const fr = i / rings;
+        const warm = 1 - fr * 0.55;
+        const r = Math.round(150 * warm + 50), gg = Math.round(95 * warm + 30), b = Math.round(48 * warm + 16);
+        g.beginPath(); g.arc(cx, cy, maxR * fr, 0, Math.PI * 2);
+        g.fillStyle = `rgb(${r},${gg},${b})`; g.fill();
+        if (i % 2 === 0) { g.strokeStyle = 'rgba(30,15,5,0.28)'; g.lineWidth = 1.4; g.stroke(); }
+    }
+    for (let i = 0; i < 10; i++) {
+        const a = Math.random() * Math.PI * 2, len = maxR * (0.3 + Math.random() * 0.65);
+        g.strokeStyle = 'rgba(20,10,4,0.3)'; g.lineWidth = 1;
+        g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * len, cy + Math.sin(a) * len); g.stroke();
+    }
+    g.beginPath(); g.arc(cx, cy, maxR * 0.06, 0, Math.PI * 2); g.fillStyle = '#2c1608'; g.fill();
+    return new THREE.CanvasTexture(c);
+}
+// How many world units one screen pixel covers right now, at the current
+// zoom — used to size label sprites in actual screen pixels rather than
+// world units. Scaling labels in world units means their on-screen size is
+// a function of the stem's length and the current zoom level: a longer
+// stem (bigger frustum) or a zoomed-out view shrinks them proportionally,
+// which is exactly what made them unreadably small on a 57 ft stem even
+// after the frustum-clipping fix. Dimension text on a real engineering
+// drawing is conventionally a fixed point size regardless of drawing
+// scale — this does the equivalent for the 3D view.
+function stem3DWorldPerPixel() {
+    const s = stem3d;
+    const visibleWorldWidth = (s.camera.right - s.camera.left) / s.camera.zoom;
+    return visibleWorldWidth / stem3dCanvas.width;
+}
+
+// Applies a sprite's stored target pixel size at the *current* zoom — call
+// again whenever zoom/frustum changes for a sprite that isn't being rebuilt
+// from scratch (rebuilt sprites get the current size for free at creation).
+function applyLabelPixelScale(sprite) {
+    const wpp = stem3DWorldPerPixel();
+    sprite.scale.set(sprite.userData.pxW * wpp, sprite.userData.pxH * wpp, 1);
+}
+
+function makeLabelSprite(text, bg = 'rgba(0,40,85,0.82)', pxW = 130, pxH = 40) {
+    const c = document.createElement('canvas'); c.width = 320; c.height = 96;
+    const g = c.getContext('2d');
+    g.fillStyle = bg;
+    g.fillRect(4, 10, 312, 76);
+    g.fillStyle = '#fff'; g.font = 'bold 46px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(text, 160, 50);
+    const tex = new THREE.CanvasTexture(c);
+    tex.minFilter = THREE.LinearFilter; // avoid mip-chain blurring on this small, high-contrast texture
+    const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false });
+    const sprite = new THREE.Sprite(mat);
+    sprite.userData.pxW = pxW;
+    sprite.userData.pxH = pxH;
+    applyLabelPixelScale(sprite);
+    stem3d?.labelSprites?.push(sprite);
+    return sprite;
+}
+
+// ─── Geometry helpers (feet as world units; inches/12 for radius/offset) ──
+const FT2IN = 12;
+function lerpSeries(series, key, h) {
+    if (h <= series[0].h) return series[0][key];
+    const last = series[series.length - 1];
+    if (h >= last.h) return last[key];
+    for (let i = 0; i < series.length - 1; i++) {
+        const a = series[i], b = series[i + 1];
+        if (h >= a.h && h <= b.h) {
+            const t = (h - a.h) / (b.h - a.h);
+            return a[key] + (b[key] - a[key]) * t;
+        }
+    }
+    return last[key];
+}
+function stem3DDiameterAt(h) {
+    if (currentTree?.profile?.length > 1) return lerpSeries(currentTree.profile, 'd', h);
+    return buttDia - (buttDia - topDia) * (h / totalLength);
+}
+function stem3DSweepOffsetInAt(h) {
+    if (currentTree?.sweepCurve?.length > 1) {
+        const curve = currentTree.sweepCurve;
+        if (h > curve[curve.length - 1].h) return 0;
+        return lerpSeries(curve, 'off', h);
+    }
+    // Fallback for datasets without a measured centerline: reuse the same
+    // sine-bump model the 2D view uses for sweep defects (getCrookOffset),
+    // in inches rather than pixels.
+    let off = 0;
+    currentDefects.forEach(d => {
+        if (d.type !== 'sweep' || h < d.startFt || h > d.endFt) return;
+        const span = Math.max(0.01, d.endFt - d.startFt);
+        const progress = (h - d.startFt) / span;
+        off += (d.widthIn > 0 ? d.widthIn : 1) * Math.sin(progress * Math.PI);
+    });
+    return off;
+}
+const RINGS_PER_FT = 3, SEGMENTS = 20;
+// A stem's diameter is small next to its length (a 20" x 40' log is a
+// 1:24 ratio) — rendered at true relative scale it reads as a hairline, not
+// a log. This exaggerates radius only (never length) so the shape reads at
+// a glance; the ruler's diameter labels always show the true inches, so a
+// player never has to trust the visual proportions for a real number.
+const RADIUS_SCALE = 4.5;
+
+function stem3DRadiusAt(h) {
+    return (stem3DDiameterAt(h) / 2 / FT2IN) * RADIUS_SCALE;
+}
+function buildStem3DCenters() {
+    const nRings = Math.max(2, Math.round(totalLength * RINGS_PER_FT));
+    const centers = [];
+    for (let i = 0; i <= nRings; i++) {
+        const x = totalLength * i / nRings;
+        centers.push({
+            x,
+            r: stem3DRadiusAt(x),
+            y: stem3DSweepOffsetInAt(x) / FT2IN,
+        });
+    }
+    return centers;
+}
+function stem3DCenterAt(x) {
+    return { x, r: stem3DRadiusAt(x), y: stem3DSweepOffsetInAt(x) / FT2IN };
+}
+
+// ─── Ruler: foot ticks + true (unexaggerated) diameter labels ─────────────
+// Always visible, not just on hover — the exaggerated log shape is for
+// silhouette legibility only; these numbers are what a player should
+// actually trust for length and diameter.
+function buildStem3DRuler(group) {
+    // Gaps below/above are expressed in *pixels* (via the current
+    // world-per-pixel ratio), not world units, so the ruler's layout looks
+    // the same — a consistent, comfortable gap — at any zoom level or stem
+    // length, matching how the labels themselves are now sized.
+    const wpp = stem3DWorldPerPixel();
+    const buttR = stem3DCenterAt(0).r;
+    const baseY = -(buttR + 22 * wpp);
+    const tickHalfH = 9 * wpp;
+    const step = totalLength > 30 ? 5 : totalLength > 15 ? 2 : 1;
+    const tickMat = new THREE.LineBasicMaterial({ color: 0x002855 });
+
+    function addFootTick(x) {
+        const tickGeo = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(x, baseY - tickHalfH, 0), new THREE.Vector3(x, baseY + tickHalfH, 0),
+        ]);
+        group.add(new THREE.Line(tickGeo, tickMat));
+
+        const label = makeLabelSprite(Math.round(x) + "'", 'rgba(0,40,85,0.78)', 60, 24);
+        label.position.set(x, baseY - 30 * wpp, 0);
+        group.add(label);
+    }
+
+    for (let ft = 0; ft <= totalLength + 0.001; ft += step) {
+        addFootTick(Math.min(ft, totalLength));
+    }
+    // Ensure the final tick lands exactly at the tip even if step doesn't divide evenly.
+    if (totalLength % step > 0.05) addFootTick(totalLength);
+
+    [0, 0.25, 0.5, 0.75, 1].forEach(frac => {
+        const x = frac * totalLength;
+        const c = stem3DCenterAt(x);
+        const trueDia = stem3DDiameterAt(x);
+        const label = makeLabelSprite(trueDia.toFixed(1) + '"', 'rgba(74,50,32,0.85)', 72, 26);
+        label.position.set(x, c.y + c.r + 18 * wpp, 0);
+        group.add(label);
+    });
+}
+
+function buildLogTubeGeometry(centers) {
+    const positions = [], normals = [], uvs = [], indices = [];
+    centers.forEach((c, ri) => {
+        for (let s = 0; s < SEGMENTS; s++) {
+            const a = (s / SEGMENTS) * Math.PI * 2;
+            const ny = Math.cos(a), nz = Math.sin(a);
+            positions.push(c.x, c.y + ny * c.r, nz * c.r);
+            normals.push(0, ny, nz);
+            uvs.push(ri / (centers.length - 1) * (totalLength / 6), s / SEGMENTS);
+        }
+    });
+    for (let ri = 0; ri < centers.length - 1; ri++) {
+        for (let s = 0; s < SEGMENTS; s++) {
+            const s2 = (s + 1) % SEGMENTS;
+            const a0 = ri * SEGMENTS + s, a1 = ri * SEGMENTS + s2;
+            const b0 = (ri + 1) * SEGMENTS + s, b1 = (ri + 1) * SEGMENTS + s2;
+            indices.push(a0, b0, a1, a1, b0, b1);
+        }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setIndex(indices);
+    return geo;
+}
+function buildCapGeometry(center, flip) {
+    const positions = [], normals = [], uvs = [], indices = [];
+    positions.push(center.x, center.y, 0); normals.push(flip ? 1 : -1, 0, 0); uvs.push(0.5, 0.5);
+    for (let s = 0; s <= SEGMENTS; s++) {
+        const a = (s / SEGMENTS) * Math.PI * 2;
+        positions.push(center.x, center.y + Math.cos(a) * center.r, Math.sin(a) * center.r);
+        normals.push(flip ? 1 : -1, 0, 0);
+        uvs.push(0.5 + Math.cos(a) * 0.5, 0.5 + Math.sin(a) * 0.5);
+    }
+    for (let s = 1; s <= SEGMENTS; s++) {
+        if (flip) indices.push(0, s, s + 1); else indices.push(0, s + 1, s);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setIndex(indices);
+    return geo;
+}
+
+// Rebuilds the whole 3D scene from currentTree/currentDefects/cuts — called
+// whenever the 2D view would have redrawn (new stem, cut added/moved/removed,
+// rotation, trim change).
+function updateStem3D() {
+    if (!stem3d || !totalLength) return;
+    const s = stem3d;
+
+    s.logGroup.clear();
+    s.defectGroup.clear();
+    s.cutGroup.clear();
+    s.rulerGroup.clear();
+    s.labelSprites.length = 0; // sprites themselves were just dropped by the .clear() calls above
+
+    const centers = buildStem3DCenters();
+    s.logGroup.add(new THREE.Mesh(buildLogTubeGeometry(centers), s.barkMat));
+    s.logGroup.add(new THREE.Mesh(buildCapGeometry(centers[0], false), s.capMat));
+    s.logGroup.add(new THREE.Mesh(buildCapGeometry(centers[centers.length - 1], true), s.capMat));
+
+    currentDefects.forEach(d => {
+        if (d.type === 'sweep') return; // sweep is baked into the bent geometry itself
+        const midFt = (d.startFt + d.endFt) / 2;
+        const c = stem3DCenterAt(midFt);
+        const sizeFt = Math.max(0.25, (d.endFt - d.startFt) * 0.5);
+        const color = d.color ? new THREE.Color(d.color) : 0xe3bd52;
+        d.facesAffected.forEach(face => {
+            const angle = (face / 4) * Math.PI * 2;
+            const ny = Math.cos(angle), nz = Math.sin(angle);
+            const geo = new THREE.CircleGeometry(sizeFt, 14);
+            const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.85, side: THREE.DoubleSide, transparent: true, opacity: 0.92 });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(c.x, c.y + ny * (c.r + 0.01), nz * (c.r + 0.01));
+            mesh.lookAt(c.x, c.y + ny * (c.r + 2), nz * (c.r + 2));
+            s.defectGroup.add(mesh);
+        });
+    });
+
+    cuts.forEach(cutFt => {
+        const c = stem3DCenterAt(cutFt);
+        const ringGeo = new THREE.CylinderGeometry(c.r * 1.04, c.r * 1.04, 0.06, SEGMENTS);
+        ringGeo.rotateZ(Math.PI / 2); // cylinder axis -> stem's X axis
+        const ringMat = new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.6, transparent: true, opacity: 0.85 });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.position.set(c.x, c.y, 0);
+        s.cutGroup.add(ring);
+
+        const label = makeLabelSprite(formatFeetInches(cutFt), 'rgba(0,40,85,0.82)', 150, 46);
+        label.position.set(c.x, c.y + c.r + 26 * stem3DWorldPerPixel(), 0);
+        s.cutGroup.add(label);
+    });
+
+    buildStem3DRuler(s.rulerGroup);
+
+    // Roll Up/Down rotates the whole stem around its own long (X) axis —
+    // rotation around X never changes a point's world-X, so cut-placement
+    // math (which only reads world.x) stays correct at any roll.
+    s.stemGroup.rotation.x = -logRotation * Math.PI / 2;
+
+    // Frame the camera on the stem: target its midpoint, reset zoom/frustum.
+    // Only reset when the stem itself changed length (a new stem loaded),
+    // not on every cut edit — mid-drag re-framing would fight the user's zoom.
+    s.target.set(totalLength / 2, 0, 0);
+    if (s.framedLength !== totalLength) {
+        s.dist = Math.max(20, totalLength * 1.2);
+        s.zoom = 1;
+        s.framedLength = totalLength;
+        updateStem3DFrustum();
+    }
+    updateStem3DCamera();
+}
+
+// ─── 3D pointer interaction: orbit vs. add/drag/remove a cut ──────────────
+// A pointerdown that hits an existing cut ring starts a drag (camera locked);
+// otherwise the drag orbits the camera, and a near-zero-movement release
+// places a new cut where the log was under the cursor.
+function stem3DPointerNDC(e) {
+    const rect = stem3dCanvas.getBoundingClientRect();
+    return {
+        x: ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        y: -((e.clientY - rect.top) / rect.height) * 2 + 1,
+    };
+}
+function stem3DRaycastX(e, targetsForFallbackPlane) {
+    const s = stem3d;
+    s.raycaster.setFromCamera(stem3DPointerNDC(e), s.camera);
+    const hits = s.raycaster.intersectObjects(s.logGroup.children, false);
+    if (hits.length) return hits[0].point.x;
+    if (targetsForFallbackPlane) {
+        const hit = new THREE.Vector3();
+        if (s.raycaster.ray.intersectPlane(s.dragPlane, hit)) return hit.x;
+    }
+    return null;
+}
+
+function onStem3DPointerDown(e) {
+    const s = stem3d;
+    s.pointerDownPos = { x: e.clientX, y: e.clientY };
+    s.moved = false;
+
+    s.raycaster.setFromCamera(stem3DPointerNDC(e), s.camera);
+    const cutHits = s.raycaster.intersectObjects(s.cutGroup.children.filter(o => o.geometry?.type === 'CylinderGeometry'), false);
+    if (cutHits.length) {
+        const hitX = cutHits[0].point.x;
+        const idx = cuts.findIndex(c => Math.abs(c - hitX) < 0.6);
+        if (idx !== -1) {
+            s.dragMode = 'cut';
+            s.dragIdx = idx;
+            // Anchor the drag plane at the ring's actual world position (not
+            // (cutFt,0,0)) — sweep offset means the cut ring may not sit on
+            // the stem's nominal centerline, and rolling the stem rotates
+            // that offset into Y/Z, so only the raycast hit point is correct.
+            s.dragPlane.setFromNormalAndCoplanarPoint(
+                s.camera.getWorldDirection(new THREE.Vector3()).negate(),
+                cutHits[0].point
+            );
+            s.dragging = true;
+            stem3dCanvas.setPointerCapture(e.pointerId);
+            return;
+        }
+    }
+    s.dragMode = 'orbit';
+    s.dragging = true;
+    stem3dCanvas.setPointerCapture(e.pointerId);
+}
+
+// Precise "where would this click cut" indicator — a bright ring at the
+// exact snapped hit position, plus the same numeric tooltip the 2D view
+// uses. This, not the chainsaw icon, is the thing to read before clicking.
+function updateStem3DHoverPreview(e) {
+    const s = stem3d;
+    const tip = document.getElementById('hoverTooltip');
+    const x = stem3DRaycastX(e, false);
+    if (x === null) {
+        s.hoverGroup.visible = false;
+        if (tip) tip.style.display = 'none';
+        return;
+    }
+    const snapX = Math.round(Math.max(0, Math.min(totalLength, x)) * 12) / 12;
+    const onExistingCut = cuts.some(c => Math.abs(c - snapX) < 0.08);
+    const c = stem3DCenterAt(snapX);
+
+    s.hoverGroup.visible = !onExistingCut;
+    if (!onExistingCut) {
+        const ring = s.hoverGroup.children[0];
+        ring.geometry.dispose();
+        ring.geometry = new THREE.CylinderGeometry(c.r * 1.1, c.r * 1.1, 0.05, SEGMENTS);
+        ring.geometry.rotateZ(Math.PI / 2);
+        s.hoverGroup.position.set(c.x, c.y, 0);
+    }
+
+    if (tip) {
+        const trueDia = stem3DDiameterAt(snapX);
+        tip.textContent   = `${formatFeetInches(snapX)} | ⌀ ${trueDia.toFixed(1)}"`;
+        tip.style.display = 'block';
+        tip.style.left    = (e.clientX + 14) + 'px';
+        tip.style.top     = (e.clientY - 32) + 'px';
+    }
+}
+
+function onStem3DPointerMove(e) {
+    const s = stem3d;
+    if (!s.dragging) {
+        showChainsaw(e.clientX, e.clientY, false);
+        updateStem3DHoverPreview(e);
+        return;
+    }
+    if (s.pointerDownPos) {
+        const dx = e.clientX - s.pointerDownPos.x, dy = e.clientY - s.pointerDownPos.y;
+        if (Math.hypot(dx, dy) > 4) s.moved = true;
+    }
+
+    // The moving cut ring (drag) or the orbiting camera is the feedback
+    // during an active gesture — the separate hover preview would be
+    // redundant and is hidden for the duration.
+    s.hoverGroup.visible = false;
+
+    if (s.dragMode === 'cut') {
+        const x = stem3DRaycastX(e, true);
+        if (x !== null) {
+            const snapX = Math.round(Math.max(0, Math.min(totalLength, x)) * 12) / 12;
+            cuts[s.dragIdx] = snapX;
+            updateStem3D();
+            const tip = document.getElementById('hoverTooltip');
+            if (tip) {
+                const trueDia = stem3DDiameterAt(snapX);
+                tip.textContent   = `${formatFeetInches(snapX)} | ⌀ ${trueDia.toFixed(1)}"`;
+                tip.style.display = 'block';
+                tip.style.left    = (e.clientX + 14) + 'px';
+                tip.style.top     = (e.clientY - 32) + 'px';
+            }
+        }
+        showChainsaw(e.clientX, e.clientY, true);
+    } else if (s.dragMode === 'orbit') {
+        const dx = e.clientX - (s._lastX ?? e.clientX), dy = e.clientY - (s._lastY ?? e.clientY);
+        s.azimuth -= dx * 0.006;
+        s.polar = Math.min(Math.PI - 0.1, Math.max(0.1, s.polar - dy * 0.006));
+        updateStem3DCamera();
+        showChainsaw(e.clientX, e.clientY, false);
+    }
+    s._lastX = e.clientX; s._lastY = e.clientY;
+}
+
+function onStem3DPointerUp(e) {
+    const s = stem3d;
+    if (!s || !s.dragging) return;
+    const wasCutDrag = s.dragMode === 'cut';
+    const clickedWithoutMoving = !s.moved;
+
+    if (wasCutDrag) {
+        cuts.sort((a, b) => a - b);
+    } else if (clickedWithoutMoving) {
+        // Treated as a click on the log itself: add a cut there.
+        const x = stem3DRaycastX(e, false);
+        if (x !== null) {
+            const snapX = Math.round(x * 12) / 12;
+            cuts.push(snapX);
+            cuts.sort((a, b) => a - b);
+            pieceProduct = [];
+        }
+    }
+
+    s.dragging = false; s.dragMode = null; s.dragIdx = -1;
+    s._lastX = undefined; s._lastY = undefined;
+    drawLog();
+}
+
+function onStem3DContextMenu(e) {
+    e.preventDefault();
+    const s = stem3d;
+    s.raycaster.setFromCamera(stem3DPointerNDC(e), s.camera);
+    const cutHits = s.raycaster.intersectObjects(s.cutGroup.children.filter(o => o.geometry?.type === 'CylinderGeometry'), false);
+    if (!cutHits.length) return;
+    const hitX = cutHits[0].point.x;
+    const idx = cuts.findIndex(c => Math.abs(c - hitX) < 0.6);
+    if (idx !== -1) { cuts.splice(idx, 1); pieceProduct = []; drawLog(); }
+}
+
+function onStem3DWheel(e) {
+    e.preventDefault();
+    const s = stem3d;
+    // Orthographic zoom, not camera distance: scrolling changes s.zoom, which
+    // scales the visible frustum — the log gets bigger/smaller on screen as
+    // expected. Labels are deliberately the exception: they're sized in
+    // constant screen pixels (see makeLabelSprite/applyLabelPixelScale), like
+    // dimension text on an engineering drawing, so they stay legible whether
+    // the log currently fills the frame or is zoomed out to fit a long stem —
+    // that's what needs re-applying here on every zoom step, since these
+    // sprites aren't being rebuilt from scratch the way a full updateStem3D()
+    // pass would.
+    s.zoom = Math.min(8, Math.max(0.4, s.zoom * (1 - e.deltaY * 0.001)));
+    updateStem3DFrustum();
+    s.labelSprites.forEach(applyLabelPixelScale);
+}
 
 // ─── Build Grading Reference Table ─────────────────────────────────────────
 (function buildGradingTable() {

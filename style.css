@@ -74,7 +74,8 @@ h1 {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
+    flex-wrap: wrap;
+    gap: 8px 18px;
     margin: 12px 0 16px;
     padding: 10px 14px;
     background: var(--wvu-cloud);
@@ -83,7 +84,31 @@ h1 {
     text-align: left;
 }
 
-#datasetSelect {
+.pickerGroup {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.pickerDivider {
+    width: 1px;
+    align-self: stretch;
+    background: var(--wvu-fog);
+}
+
+@media (max-width: 600px) {
+    #datasetPicker {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .pickerDivider {
+        width: auto;
+        height: 1px;
+        align-self: auto;
+    }
+}
+
+#datasetSelect, #viewModeSelect {
     font: inherit;
     padding: 6px 28px 6px 8px;
     border: 1px solid var(--wvu-fog);
@@ -95,6 +120,53 @@ h1 {
 #datasetStatus {
     color: var(--wvu-slate);
     font-size: 12px;
+}
+
+#stemViewWrap {
+    position: relative;
+}
+
+#stemViewWrap canvas {
+    cursor: none;
+}
+
+#stem3dBadge {
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    font-size: 11px;
+    color: var(--wvu-blue);
+    background: rgba(255, 255, 255, 0.82);
+    border: 1px solid var(--wvu-fog);
+    border-radius: 4px;
+    padding: 3px 8px;
+    pointer-events: none;
+}
+
+/* The chainsaw's blade tip is the only part meant to mark a location — it
+   sits at (50%, 96%) of the icon's own box. transform-origin is pinned to
+   that same point so rotation pivots around the tip instead of the icon's
+   center, which is what keeps the tip anchored to the actual cursor/cut
+   position at any angle. Kept small and off to the side isn't an option
+   here (tip = the point), so precision instead comes from the tip anchor
+   plus the separate cut-preview line/ring drawn on the stem itself. */
+#chainsawCursor {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 26px;
+    height: auto;
+    display: none;
+    pointer-events: none;
+    z-index: 300;
+    transform-origin: 50% 96%;
+    transform: translate(-50%, -96%) rotate(-12deg);
+    filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.35));
+    transition: transform 0.08s ease-out;
+}
+
+#chainsawCursor.active {
+    transform: translate(-50%, -96%) rotate(-12deg) scale(1.12);
 }
 
 button {

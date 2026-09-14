@@ -5,19 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Bucking Trainer</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
     <div class="container">
         <h1>🪵 Bucking Trainer</h1>
 
-        <div id="datasetPicker" aria-label="Stem dataset">
-            <label for="datasetSelect"><strong>Stem dataset</strong></label>
-            <select id="datasetSelect">
-                <option value="hwbuck">HW Buck stems</option>
-                <option value="synthetic">Synthetic stems</option>
-                <option value="millstudy" selected>Mill study stems</option>
-            </select>
-            <span id="datasetStatus" role="status"></span>
+        <div id="datasetPicker" aria-label="Stem dataset and view mode">
+            <span class="pickerGroup">
+                <label for="datasetSelect"><strong>Stem dataset</strong></label>
+                <select id="datasetSelect">
+                    <option value="hwbuck">HW Buck stems</option>
+                    <option value="synthetic">Synthetic stems</option>
+                    <option value="millstudy" selected>Mill study stems</option>
+                </select>
+                <span id="datasetStatus" role="status"></span>
+            </span>
+            <span class="pickerDivider" aria-hidden="true"></span>
+            <span class="pickerGroup">
+                <label for="viewModeSelect"><strong>Stem view</strong></label>
+                <select id="viewModeSelect">
+                    <option value="2d" selected>2D diagram</option>
+                    <option value="3d">3D (beta)</option>
+                </select>
+            </span>
         </div>
 
         <div id="gameHeader">
@@ -111,7 +122,11 @@
 
         <div id="defectLegend" style="text-align:left;"></div>
 
-        <canvas id="logCanvas" width="800" height="200"></canvas>
+        <div id="stemViewWrap">
+            <canvas id="logCanvas" width="800" height="200"></canvas>
+            <canvas id="stem3dCanvas" width="800" height="200" style="display:none;"></canvas>
+            <div id="stem3dBadge" style="display:none;"></div>
+        </div>
         <div id="rotationControl" style="display:flex; align-items:center; gap:8px; justify-content:center; margin:5px 0 2px;">
             <span style="font-size:12px; color:#666;">&#8593;&#8595; arrow keys or:</span>
             <button id="rollUp"   style="padding:3px 14px; font-size:13px;" title="Roll stem up (&#8593;)">&#9650; Roll Up</button>
@@ -146,6 +161,31 @@
     <div id="hoverTooltip" style="position:fixed; display:none; background:rgba(0,0,0,0.78);
         color:#fff; padding:3px 9px; border-radius:4px; font-size:12px; font-family:Arial,sans-serif;
         pointer-events:none; z-index:200; white-space:nowrap;"></div>
+
+    <div id="chainsawCursor" aria-hidden="true">
+        <svg width="44" height="52" viewBox="0 0 44 52" xmlns="http://www.w3.org/2000/svg">
+            <!-- guide bar + chain teeth -->
+            <rect x="18" y="14" width="8" height="36" rx="2" fill="#c9ced6" stroke="#5a5f68" stroke-width="1"/>
+            <g fill="#20232b">
+                <rect x="16.5" y="16" width="3" height="4"/>
+                <rect x="16.5" y="23" width="3" height="4"/>
+                <rect x="16.5" y="30" width="3" height="4"/>
+                <rect x="16.5" y="37" width="3" height="4"/>
+                <rect x="16.5" y="44" width="3" height="4"/>
+                <rect x="24.5" y="19.5" width="3" height="4"/>
+                <rect x="24.5" y="26.5" width="3" height="4"/>
+                <rect x="24.5" y="33.5" width="3" height="4"/>
+                <rect x="24.5" y="40.5" width="3" height="4"/>
+            </g>
+            <!-- bar tip -->
+            <path d="M18 50 Q22 52 26 50 L26 48 L18 48 Z" fill="#8b9098"/>
+            <!-- motor body -->
+            <rect x="6" y="0" width="26" height="17" rx="5" fill="#d9691c" stroke="#8a3f0d" stroke-width="1"/>
+            <rect x="9" y="3" width="8" height="6" rx="1.5" fill="#2b2f36"/>
+            <!-- rear handle -->
+            <path d="M2 6 q-4 3 0 9" fill="none" stroke="#2b2f36" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+    </div>
 
     <script src="script.js"></script>
 </body>
