@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document describes the process for projecting real, observed log defects from the **mill study log data** (`Defect-Data.xlsx`) onto the geometric segments of **reconstructed stems** (produced by the Stem Reconstruction process — see `Stem_Reconstruction_Methodology.md`). The goal is a repeatable procedure that produces realistic, physically-grounded, traceable defect placements on synthetic stem segments, reproducible across future plots and future mill study datasets.
+This document describes the process for projecting real, observed log defects from the **mill study log data** (`Defect Data.xlsx`) onto the geometric segments of **reconstructed stems** (produced by the Stem Reconstruction process — see `Stem_Reconstruction_Methodology.md`). The goal is a repeatable procedure that produces realistic, physically-grounded, traceable defect placements on synthetic stem segments, reproducible across future plots and future mill study datasets.
 
 **This is the output schema now required by the downstream bucking training software and must be treated as a fixed contract (see Section 8).**
 
@@ -10,7 +10,7 @@ This document describes the process for projecting real, observed log defects fr
 
 ## 1. Source Data: The Mill Study Log Data
 
-`Defect-Data.xlsx` contains one sheet per diameter class (10in, 11in, 12in, ... 17+in). Each row is one real, individually scaled log with:
+`Defect Data.xlsx` contains one sheet per diameter class (10in, 11in, 12in, ... 17+in). Each row is one real, individually scaled log with:
 
 | Column | Meaning |
 |---|---|
@@ -40,6 +40,8 @@ This document describes the process for projecting real, observed log defects fr
 ## 3. Diameter Class Assignment and Length-Proximity Selection
 
 A stem segment's diameter is rounded to the nearest whole inch and clamped to 10–17. Within the matched pool, the **5 closest-length candidates** to the segment's actual length are identified, and one is drawn at random from that shortlist (true bootstrap, `random_state=None`, no fixed seed). This avoids inventing a proportional-scaling formula — every projected defect profile comes from a real log that was genuinely close in both diameter class and length.
+
+**Tie-breaking requirement (critical, see Section 12.3):** mill log lengths cluster heavily on round numbers, so a length-proximity query very often produces a tie (multiple candidates at equal distance) rather than a clean top-5 ranking. The candidate pool must be **shuffled before ranking by length distance** on every draw. Ranking with a stable sort (the default in Python and most languages/libraries) will silently and consistently prefer whichever row happens to be listed first among tied candidates — and the mill data sheets are themselves sorted by clear-face count, so a stable sort systematically favors the highest-defect row in every tie. This was found to inflate mean projected defect counts by roughly 2x relative to the properly-randomized version. Any reimplementation of this step must shuffle first.
 
 ---
 
@@ -96,7 +98,7 @@ Every output file carries a `realization` block (`realizationId`, `generatedAt`,
 
 ## 7. Full Traceability
 
-Every projected defect (at both the log-match level and the individual-defect level) carries a `sourceMillLogRowId` — the stable row index in the concatenated mill dataframe — allowing any projected defect to be traced back to the exact row and diameter-class sheet it came from in `Defect-Data.xlsx`.
+Every projected defect (at both the log-match level and the individual-defect level) carries a `sourceMillLogRowId` — the stable row index in the concatenated mill dataframe — allowing any projected defect to be traced back to the exact row and diameter-class sheet it came from in `Defect Data.xlsx`.
 
 ---
 
@@ -171,6 +173,8 @@ Additional fields (`sourceMillLogSide`, `memberSizeClasses`, `isMerged`, `matchL
 6. Confirm any new or previously-unconfirmed species codes against a domain expert before relying on species-specific matching for them (see `Stem_Reconstruction_Methodology.md` Section 1.1) — do not guess.
 7. Always retain the `sourceMillLogRowId` trace table for every run.
 8. Validate output against the Section 8 schema contract before handing off to the bucking trainer.
+9. Confirm `Defect Data.xlsx` is committed at the commit you're generating from (see Section 12.2) — generating against an uncommitted or since-edited spreadsheet makes the run unreconcilable later.
+10. Confirm the candidate pool is shuffled before ranking by length (Section 3) — do not rely on a stable sort's default tie order.
 
 ---
 
@@ -245,7 +249,7 @@ This has not been decided and the matching logic has **not** been changed to add
 
 ---
 
-## 12.7 Follow-up: the 13in outlier, resolved
+### 12.7 Follow-up: the 13in outlier, resolved
 
 The 13in diameter class was the one bucket in the Section 12.5 table falling outside the general ±15% pattern (−22.7% vs. pool). A follow-up investigation, scoped narrowly to this bucket, resolved it into two separate findings.
 
